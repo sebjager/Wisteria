@@ -14,6 +14,7 @@
 #include "common/settings.h"
 #include "common/settings_enums.h"
 #include "frontend_common/settings_generator.h"
+#include "frontend_common/game_profile.h"
 #include "render/performance_overlay.h"
 #ifdef HAS_RESHADE
 #include "configuration/configure_post_processing.h"
@@ -1972,6 +1973,7 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
                                           ? Common::FS::PathToUTF8String(file_path.filename())
                                           : fmt::format("{:016X}", title_id);
         QtConfig per_game_config(config_file_name, Config::ConfigType::PerGameConfig);
+        GameProfile::Apply(title_id);
         QtCommon::system->HIDCore().ReloadInputDevices();
         QtCommon::system->ApplySettings();
     }

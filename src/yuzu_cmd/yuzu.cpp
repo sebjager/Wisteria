@@ -46,7 +46,10 @@
 #include "core/hle/service/am/applet_manager.h"
 #include "core/hle/service/filesystem/filesystem.h"
 #include "core/loader/loader.h"
+#include "common/fs/fs.h"
+#include "common/fs/path_util.h"
 #include "frontend_common/config.h"
+#include "frontend_common/game_profile.h"
 #include "input_common/drivers/keyboard.h"
 #include "input_common/main.h"
 #include "network/network.h"
@@ -394,6 +397,26 @@ static bool EditNup(const Core::LaunchParams& lp) {
     }
 }
 
+// Loads custom/<id>.ini and the game profile. False when the program id is unknown.
+static bool LoadGameSettings(Core::System& system, const std::string& filepath) {
+    const auto file = Core::GetGameFileFromPath(system.GetFilesystem(), filepath);
+    const auto loader = Loader::GetLoader(system, file);
+    u64 program_id = 0;
+    if (loader == nullptr || loader->ReadProgramId(program_id) != Loader::ResultStatus::Success ||
+        program_id == 0) {
+        return false;
+    }
+    const std::string config_name = fmt::format("{:016X}", program_id);
+    const auto custom_path = Common::FS::GetEdenPath(Common::FS::EdenPath::ConfigDir) / "custom" /
+                             fmt::format("{}.ini", config_name);
+    if (Common::FS::Exists(custom_path)) {
+        LOG_INFO(Frontend, "Loading per-game config {}", Common::FS::PathToUTF8String(custom_path));
+        SdlConfig per_game_config(config_name, Config::ConfigType::PerGameConfig);
+    }
+    GameProfile::Apply(program_id);
+    return true;
+}
+
 extern "C" SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
 #ifdef _WIN32
     SetUnhandledExceptionFilter(WriteCrashDump);
@@ -441,7 +464,10 @@ extern "C" SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
 #ifdef _WIN32
     LocalFree(argv_w);
 #endif
-    SdlConfig config{lp.config_path};
+    {
+        // Saves on destruction: done before per-game values load so they stay out of config.ini.
+        SdlConfig config{lp.config_path};
+    }
 
     Core::ApplyLaunchParams(lp);
 
@@ -476,6 +502,18 @@ extern "C" SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
 
     state->system.Initialize();
 
+    state->system.SetContentProvider(std::make_unique<FileSys::ContentProviderUnion>());
+    state->system.SetFilesystem(std::make_shared<FileSys::RealVfsFilesystem>());
+    state->system.GetFileSystemController().CreateFactories(*state->system.GetFilesystem());
+
+    // Per-game config (written by the Qt frontend) and the game's optimization profile.
+    if (LoadGameSettings(state->system, lp.filepath)) {
+        // Command line flags still win over both.
+        Core::LaunchParams overrides = lp;
+        overrides.print_help = false;
+        overrides.print_version = false;
+        Core::ApplyLaunchParams(overrides);
+    }
 
     // Apply the command line arguments
     state->system.ApplySettings();
@@ -504,9 +542,6 @@ extern "C" SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     state->system.CoreTiming().SetTimerResolutionNs(Common::Windows::GetCurrentTimerResolution());
 #endif
 
-    state->system.SetContentProvider(std::make_unique<FileSys::ContentProviderUnion>());
-    state->system.SetFilesystem(std::make_shared<FileSys::RealVfsFilesystem>());
-    state->system.GetFileSystemController().CreateFactories(*state->system.GetFilesystem());
     state->system.GetUserChannel().clear();
 
     Service::AM::FrontendAppletParameters load_parameters{
