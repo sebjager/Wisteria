@@ -15,6 +15,7 @@
 #include <fmt/ranges.h>
 #include "common/assert.h"
 #include "common/logging.h"
+#include "common/nx2_compat_report.h"
 #include "common/settings.h"
 #include "core/core.h"
 #include "core/hle/ipc.h"
@@ -88,6 +89,7 @@ void ServiceFrameworkBase::ReportUnimplementedFunction(HLERequestContext& ctx,
         std::string_view{service_name}.starts_with(Nx2StubPrefix) ||
         (caller != nullptr && caller->IsSwitch2())) {
         LOG_WARNING(Service, "Using auto stub fallback!");
+        Common::Nx2Compat::NoteAutoStub(service_name, ctx.GetCommand(), function_name);
         IPC::ResponseBuilder rb{ctx, 2};
         rb.Push(ResultSuccess);
     }
@@ -189,6 +191,7 @@ Result ServiceFrameworkBase::HandleSyncRequest(Kernel::KServerSession& session,
             }
         }
         CountRequest(service_name, ctx.GetCommand(), type, result_word);
+        Common::Nx2Compat::NoteRequest(service_name, ctx.GetCommand());
     };
 
     Result result = ResultSuccess;

@@ -14,6 +14,7 @@
 #include <boost/container/small_vector.hpp>
 
 #include "common/assert.h"
+#include "common/nx2_compat_report.h"
 #include "shader_recompiler/frontend/maxwell/control_flow.h"
 #include "shader_recompiler/exception.h"
 #include "shader_recompiler/object_pool.h"
@@ -123,6 +124,7 @@ bool ShaderCache::RefreshStages(std::array<u64, 6>& unique_hashes) try {
     static std::unordered_set<std::string> logged;
     if (logged.insert(error.what()).second) {
         LOG_ERROR(HW_GPU, "Native graphics shader rejected: {}", error.what());
+        Common::Nx2Compat::NoteShaderReject("graphics", error.what());
     }
     // Once: show what the vertex stage has bound, to find where an unbound bank's data lives.
     static std::vector<std::string> dumped_errors;

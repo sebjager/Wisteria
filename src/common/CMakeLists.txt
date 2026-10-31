@@ -81,6 +81,8 @@ add_library(
     memory_detect.h
     multi_level_page_table.cpp
     multi_level_page_table.h
+    nx2_compat_report.cpp
+    nx2_compat_report.h
     overflow.h
     page_table.cpp
     page_table.h
