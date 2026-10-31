@@ -20,6 +20,10 @@ void NoteAutoStub(std::string_view service, u32 command, std::string_view name);
 void NoteShaderReject(std::string_view kind, std::string_view reason);
 void NoteRequest(std::string_view service, u32 command);
 
+/// Called on every guest present: frame times after EDEN_NX2_COMPAT_WARMUP seconds (default 20)
+/// go into a histogram, reported as mean and percentiles.
+void NotePresent();
+
 /// Records the present count and rewrites the file at most every 5 s (always when final).
 void Tick(u64 presents, std::string_view status, bool final);
 

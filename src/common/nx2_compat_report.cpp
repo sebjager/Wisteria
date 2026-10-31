@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
@@ -23,6 +24,10 @@ struct Entry {
     double first = 0.0;
 };
 
+// Frame times in 0.25 ms buckets up to 250 ms; the last bucket holds everything longer.
+constexpr size_t FrameBuckets = 1001;
+constexpr double FrameBucketMs = 0.25;
+
 struct Report {
     std::mutex mutex;
     std::map<std::tuple<std::string, u32, std::string>, Entry> stubs;
@@ -34,7 +39,36 @@ struct Report {
     double last_present = -1.0;
     u64 presents = 0;
     double last_write = -10.0;
+    std::array<u64, FrameBuckets> frame_histogram{};
+    u64 frame_count = 0;
+    double frame_sum_ms = 0.0;
+    double frame_max_ms = 0.0;
+    u64 frames_over_50ms = 0;
+    double last_present_time = -1.0;
 };
+
+double Warmup() {
+    static const double warmup = [] {
+        const char* value = std::getenv("EDEN_NX2_COMPAT_WARMUP");
+        return value != nullptr ? std::atof(value) : 20.0;
+    }();
+    return warmup;
+}
+
+double Percentile(const Report& report, double fraction) {
+    if (report.frame_count == 0) {
+        return 0.0;
+    }
+    const u64 target = static_cast<u64>(fraction * static_cast<double>(report.frame_count - 1)) + 1;
+    u64 seen = 0;
+    for (size_t i = 0; i < FrameBuckets; ++i) {
+        seen += report.frame_histogram[i];
+        if (seen >= target) {
+            return i + 1 == FrameBuckets ? report.frame_max_ms : (i + 0.5) * FrameBucketMs;
+        }
+    }
+    return report.frame_max_ms;
+}
 
 const char* Path() {
     static const char* const path = std::getenv("EDEN_NX2_COMPAT_REPORT");
@@ -65,6 +99,13 @@ void Write(Report& report, std::string_view status, double now) {
     text += fmt::format("status {}\nelapsed {:.1f}\npresents {}\n", status, now, report.presents);
     text += fmt::format("first_present {:.1f}\nlast_present {:.1f}\n", report.first_present,
                         report.last_present);
+    if (report.frame_count != 0) {
+        text += fmt::format("frametime {} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {:.2f} {}\n",
+                            report.frame_count, report.frame_sum_ms / report.frame_count,
+                            Percentile(report, 0.5), Percentile(report, 0.95),
+                            Percentile(report, 0.99), Percentile(report, 0.999),
+                            report.frame_max_ms, report.frames_over_50ms);
+    }
     for (const auto& [time, presents] : report.heartbeats) {
         text += fmt::format("heartbeat {:.1f} {}\n", time, presents);
     }
@@ -136,6 +177,29 @@ void NoteRequest(std::string_view service, u32 command) {
     std::scoped_lock lock{report.mutex};
     report.last_requests[report.next_request] = {now, std::string{service}, command};
     report.next_request = (report.next_request + 1) % report.last_requests.size();
+}
+
+void NotePresent() {
+    if (!Enabled()) {
+        return;
+    }
+    auto& report = GetReport();
+    const double now = Elapsed();
+    std::scoped_lock lock{report.mutex};
+    const double previous = report.last_present_time;
+    report.last_present_time = now;
+    if (previous < 0.0 || previous < Warmup()) {
+        return;
+    }
+    const double ms = (now - previous) * 1000.0;
+    const size_t bucket = std::min(static_cast<size_t>(ms / FrameBucketMs), FrameBuckets - 1);
+    ++report.frame_histogram[bucket];
+    ++report.frame_count;
+    report.frame_sum_ms += ms;
+    report.frame_max_ms = std::max(report.frame_max_ms, ms);
+    if (ms > 50.0) {
+        ++report.frames_over_50ms;
+    }
 }
 
 void Tick(u64 presents, std::string_view status, bool final) {
