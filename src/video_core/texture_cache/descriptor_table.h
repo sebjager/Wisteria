@@ -62,10 +62,18 @@ public:
         std::fill(read_descriptors.begin(), read_descriptors.begin() + old_size, 0);
         //
         descriptors.resize(num_descriptors);
+        resolved_ids.resize(num_descriptors);
+    }
+
+    /// Texture cache id resolved for the descriptor at index; valid while Read reports it unchanged
+    /// (removing a view invalidates the table, so the next Read resolves it again).
+    [[nodiscard]] u32& ResolvedId(u32 index) noexcept {
+        return resolved_ids[index];
     }
 
     std::vector<u64> read_descriptors;
     std::vector<T> descriptors;
+    std::vector<u32> resolved_ids;
     GPUVAddr current_gpu_addr{};
     u32 current_limit{};
 };
