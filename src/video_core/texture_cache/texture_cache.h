@@ -42,6 +42,31 @@ using VideoCore::Surface::PixelFormat;
 using VideoCore::Surface::SurfaceType;
 using namespace Common::Literals;
 
+// EDEN_NX2_TABLE_IDS=0: look unchanged descriptors up in the per-channel id maps instead of the id
+// kept next to them in the descriptor table. EDEN_NX2_TABLE_IDS_VERIFY=1 does both and logs
+// differences.
+template <typename Id, typename Map>
+Id ResolvedTableId(u32 table_id, const Map& map, u32 map_index) {
+    static const bool enabled = [] {
+        const char* value = std::getenv("EDEN_NX2_TABLE_IDS");
+        return value == nullptr || value[0] != '0';
+    }();
+    static const bool verify = std::getenv("EDEN_NX2_TABLE_IDS_VERIFY") != nullptr;
+    if (enabled && !verify) {
+        Nx2Profile::Add(Nx2Profile::Counter::TableIdHits, 1);
+        return Id{table_id};
+    }
+    const Id mapped = map.find(map_index)->second;
+    if (verify && mapped.index != table_id) {
+        static std::atomic<u32> reported{};
+        if (reported.fetch_add(1) < 32) {
+            LOG_ERROR(HW_GPU, "Table id mismatch: index={:#x} table={} map={}", map_index,
+                      table_id, mapped.index);
+        }
+    }
+    return mapped;
+}
+
 template <class P>
 TextureCache<P>::TextureCache(Runtime& runtime_, Tegra::MaxwellDeviceMemoryManager& device_memory_)
     : runtime{runtime_}, device_memory{device_memory_} {
@@ -457,9 +482,11 @@ SamplerId TextureCache<P>::GetSamplerId(u32 index, bool compute) {
     if (is_new) {
         auto const id = FindSampler(descriptor, compute);
         channel_state->sampler_ids.insert_or_assign(map_index, id);
+        table.ResolvedId(index) = id.index;
         return id;
     }
-    return channel_state->sampler_ids.find(map_index)->second;
+    return ResolvedTableId<SamplerId>(table.ResolvedId(index), channel_state->sampler_ids,
+                                      map_index);
 }
 
 template <class P>
@@ -693,15 +720,18 @@ ImageViewId TextureCache<P>::VisitImageView(u32 index, bool compute) {
                 pair->second = CreateImageView(descriptor);
             PrepareImageView(pair->second, false, false);
             channel_state->image_view_ids.insert_or_assign(map_index, pair->second);
+            table.ResolvedId(index) = pair->second.index;
             return pair->second;
         }
         channel_state->image_view_ids.insert_or_assign(map_index, NULL_IMAGE_VIEW_ID);
+        table.ResolvedId(index) = NULL_IMAGE_VIEW_ID.index;
         return NULL_IMAGE_VIEW_ID;
     }
-    auto const it = channel_state->image_view_ids.find(map_index);
-    if (it->second != NULL_IMAGE_VIEW_ID)
-        PrepareImageView(it->second, false, false);
-    return it->second;
+    const ImageViewId id = ResolvedTableId<ImageViewId>(table.ResolvedId(index),
+                                                        channel_state->image_view_ids, map_index);
+    if (id != NULL_IMAGE_VIEW_ID)
+        PrepareImageView(id, false, false);
+    return id;
 }
 
 template <class P>
