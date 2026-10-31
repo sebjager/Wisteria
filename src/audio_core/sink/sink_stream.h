@@ -245,9 +245,17 @@ private:
     SinkBuffer playing_buffer{};
     /// The last played (or received) frame of audio, used when the callback underruns
     std::array<s16, MaxChannels> last_frame{};
+    /// Frame the fade-out on underrun starts from.
+    std::array<s16, MaxChannels> underrun_hold{};
+    /// Gain of the fade-out on underrun, 1.0 while real samples play.
+    f32 underrun_gain{1.0f};
+    /// Frames left in the fade-in after an underrun, 0 when none is running.
+    u32 fade_in_left{};
     /// EDEN_NX2_AUDIO_LEVEL meter state.
     s32 level_peak{};
     u64 level_frames{};
+    u32 level_underruns{};
+    u64 level_missing_frames{};
     /// Number of buffers waiting to be played
     std::atomic<u32> queued_buffers{};
     /// The ring size for audio out buffers (usually 4, rarely 2 or 8)
