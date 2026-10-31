@@ -359,8 +359,11 @@ jobs:
           test -x build/release/bin/eglantine
           test -x build/release/bin/eden-cli
           strip build/release/bin/eglantine build/release/bin/eden-cli
+          # GPL: the license texts go into the tar.gz next to the programs.
+          cp LICENSE.txt build/release/bin/
+          cp -r LICENSES build/release/bin/
           tar -czf "eglantine-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz" \
-            -C build/release/bin eglantine eden-cli
+            -C build/release/bin eglantine eden-cli LICENSE.txt LICENSES
           ls -la "eglantine-${GITHUB_SHA}-${{ matrix.platform }}.tar.gz"
 
       # A self-contained AppImage: linuxdeploy bundles every library the two programs need except
@@ -386,6 +389,9 @@ jobs:
           cp dist/Eglantine.png "$icon"
           export APPIMAGE_EXTRACT_AND_RUN=1
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          # GPL: ship the license texts inside the AppImage.
+          install -Dm644 LICENSE.txt AppDir/usr/share/doc/eglantine/LICENSE.txt
+          cp -r LICENSES AppDir/usr/share/doc/eglantine/
           export LDAI_OUTPUT="eglantine-${GITHUB_SHA}-${{ matrix.platform }}.AppImage"
           export OUTPUT="$LDAI_OUTPUT"
           export ARCH="$arch"
@@ -458,6 +464,9 @@ jobs:
           test -x "$app/Contents/MacOS/eglantine"
           test -x build/release/bin/eden-cli
           cp build/release/bin/eden-cli "$app/Contents/MacOS/eden-cli"
+          # GPL: ship the license texts inside the app bundle.
+          cp LICENSE.txt "$app/Contents/Resources/"
+          cp -r LICENSES "$app/Contents/Resources/"
           "$(brew --prefix qt@6)/bin/macdeployqt" "$app" \
             -executable="$app/Contents/MacOS/eden-cli" -libpath="$(brew --prefix)/lib" \
             -always-overwrite -verbose=1
@@ -504,6 +513,16 @@ jobs:
           hdiutil create -volname "Eglantine" -srcfolder "$dmgdir" -ov -format UDZO \
             "eglantine-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
           ls -la "eglantine-${GITHUB_SHA}-${{ matrix.platform }}.dmg"
+
+      # GPL: ship the license texts next to the Windows binaries (Linux and macOS packages
+      # carry them inside the AppImage, tar.gz and app bundle).
+      - name: Add license files
+        if: startsWith(matrix.platform, 'windows')
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp LICENSE.txt build/release/bin/
+          cp -r LICENSES build/release/bin/
 
       # The artifact is the bin folder itself: GitHub zips artifacts on download, and uploading a
       # zip gave a zip inside a zip. The release job zips it once for the release.
@@ -598,6 +617,7 @@ jobs:
             --prerelease \
             --title "Eglantine ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
             --notes "Automatic build of ${GITHUB_REF_NAME} at ${GITHUB_SHA}.
+          Licensed under GPL-3.0-or-later. Source code: https://github.com/${GITHUB_REPOSITORY}/tree/${GITHUB_SHA}
 
           Windows: extract the zip and run eglantine.exe, or eden-cli.exe from a terminal.
           Linux (AppImage): make it executable (chmod +x) and run it; it bundles its libraries and needs glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, Debian 13, Arch).
