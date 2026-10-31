@@ -111,6 +111,9 @@ void SetCurrentThreadToPerformanceCores();
 void SetCurrentThreadToEfficiencyCores();
 void SetCurrentThreadToBackgroundWork();
 void SetCurrentThreadToAllCores();
+/// EDEN_NX2_AFFINITY=1: pin the calling thread to the slot-th physical core (its first SMT
+/// thread), so hot threads do not share a core. Windows only.
+void PinCurrentThreadToPhysicalCore(u32 slot, const char* name);
 
 void RefreshThreadPolicies();
 void PollThreadPolicies();

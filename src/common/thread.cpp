@@ -6,9 +6,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <chrono>
+#include <cstdlib>
 #include <limits>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "common/adpf.h"
 #include "common/error.h"
@@ -570,6 +572,49 @@ void SetCurrentThreadToAllCores() {
 #if defined(__ANDROID__)
     ADPF::RemoveCurrentThread();
     SetCurrentThreadCoreGroup(CoreGroup::Unrestricted);
+#endif
+}
+
+void PinCurrentThreadToPhysicalCore(u32 slot, const char* name) {
+#ifdef _WIN32
+    static const bool enabled = [] {
+        const char* value = std::getenv("EDEN_NX2_AFFINITY");
+        return value != nullptr && value[0] != '0';
+    }();
+    if (!enabled) {
+        return;
+    }
+    // First logical processor of each physical core in group 0.
+    static const std::vector<KAFFINITY> cores = [] {
+        std::vector<KAFFINITY> result;
+        DWORD length = 0;
+        GetLogicalProcessorInformationEx(RelationProcessorCore, nullptr, &length);
+        std::vector<u8> buffer(length);
+        if (!GetLogicalProcessorInformationEx(
+                RelationProcessorCore,
+                reinterpret_cast<SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(buffer.data()),
+                &length)) {
+            return result;
+        }
+        for (DWORD offset = 0; offset < length;) {
+            const auto* const entry = reinterpret_cast<const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*>(
+                buffer.data() + offset);
+            const GROUP_AFFINITY& group = entry->Processor.GroupMask[0];
+            if (group.Group == 0 && group.Mask != 0) {
+                result.push_back(group.Mask & (~group.Mask + 1));
+            }
+            offset += entry->Size;
+        }
+        return result;
+    }();
+    if (slot >= cores.size()) {
+        LOG_WARNING(Common, "Affinity: no physical core for {} (slot {}, {} cores)", name, slot,
+                    cores.size());
+        return;
+    }
+    const bool ok = SetThreadAffinityMask(GetCurrentThread(), cores[slot]) != 0;
+    LOG_INFO(Common, "Affinity: {} -> physical core {} (mask {:#x}){}", name, slot,
+             static_cast<u64>(cores[slot]), ok ? "" : " failed");
 #endif
 }
 
