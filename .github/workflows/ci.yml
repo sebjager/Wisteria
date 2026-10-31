@@ -91,7 +91,8 @@ jobs:
             objects-ci-windows-
 
       # Same configuration as the local build in NX2_NOTES.md (RelWithDebInfo, eden-cli without Qt),
-      # with the unit tests turned on.
+      # with the unit tests turned on. sccache cannot cache /Zi (a PDB shared between compiler
+      # processes), so debug info is embedded in each object with /Z7 instead.
       - name: Configure
         shell: bash
         run: >-
@@ -110,6 +111,8 @@ jobs:
           -DYUZU_USE_BUNDLED_SDL3=ON
           -DCMAKE_C_COMPILER_LAUNCHER=sccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          -DCMAKE_POLICY_DEFAULT_CMP0141=NEW
+          -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
 
       - name: Build
         shell: bash
