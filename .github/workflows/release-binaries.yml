@@ -319,6 +319,9 @@ jobs:
           cp dist/Eglantine.png "$icon"
           export APPIMAGE_EXTRACT_AND_RUN=1
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          # GPL: ship the license texts inside the AppImage.
+          install -Dm644 LICENSE.txt AppDir/usr/share/doc/eglantine/LICENSE.txt
+          cp -r LICENSES AppDir/usr/share/doc/eglantine/
           export LDAI_OUTPUT="eglantine-${GITHUB_SHA}-${{ matrix.platform }}.AppImage"
           export OUTPUT="$LDAI_OUTPUT"
           "$tools/linuxdeploy-x86_64.AppImage" --appdir AppDir \
@@ -377,6 +380,15 @@ jobs:
           find . -name '*.dll' | while read -r dll; do
             deps "$dll"
           done
+
+      # GPL: ship the license texts next to the Windows binaries.
+      - name: Add license files
+        if: "!startsWith(matrix.platform, 'linux')"
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp LICENSE.txt build/release/bin/
+          cp -r LICENSES build/release/bin/
 
       # The artifact is the bin folder itself: GitHub zips artifacts on download, and uploading a
       # zip gave a zip inside a zip. The release job zips it once for the release.
@@ -451,6 +463,7 @@ jobs:
             --prerelease \
             --title "Eglantine ${GITHUB_REF_NAME} build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7})" \
             --notes "Automatic build of ${GITHUB_REF_NAME} at ${GITHUB_SHA}.
+          Licensed under GPL-3.0-or-later. Source code: https://github.com/${GITHUB_REPOSITORY}/tree/${GITHUB_SHA}
 
           Windows: extract the zip and run eglantine.exe, or eden-cli.exe from a terminal.
           Linux: make the AppImage executable (chmod +x) and run it; it bundles its libraries and needs glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, Debian 13, Arch).
