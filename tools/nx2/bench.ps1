@@ -1,4 +1,7 @@
-# Local benchmark for eden-cli on a Switch 2 title (not committed).
+# SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Benchmark for eden-cli on a Switch 2 title.
 # Runs eden-cli N times for a fixed time, kills it, keeps each log and prints per-run and overall
 # numbers from the GPU profiler (EDEN_NX2_GPU_PROFILE, one line per thread every 10 s) and the
 # nx2:vi2 present log (one line per 600 presents -> mean frame time per 600-frame window).
@@ -6,9 +9,16 @@
 #   .\bench.ps1 -Game "D:\...\exefs\main" [-Runs 3] [-Seconds 120] [-Warmup 40] [-Tag base]
 #               [-KeyScript "50:4,50.5:-4"] [-Env @{EDEN_NX2_SPLIT='0'}]
 #   .\bench.ps1 -ParseOnly C:\dev\bench\base-*.log
+# -WarmupRun adds a first run that is not counted (shader/pipeline caches). -Config @{key=value}
+# runs with a copy of user\config\sdl2-config.ini that has those settings ([key\default=false, key=value]);
+# -Preset row128 is NX2_NOTES row 128 (gpu_accuracy Low, astc_recompression Bc3, reactive flushing off,
+# async shaders on).
 param(
     [string]$Game,
     [int]$Runs = 3,
+    [switch]$WarmupRun,
+    [hashtable]$Config = @{},
+    [string]$Preset = "",
     [int]$Seconds = 120,
     [double]$Warmup = 40,
     [string]$Tag = "base",
@@ -106,23 +116,48 @@ $vars = @{
 if ($KeyScript) { $vars.EDEN_NX2_KEY_SCRIPT = $KeyScript }
 foreach ($k in $Env.Keys) { $vars[$k] = $Env[$k] }
 
+if ($Preset -eq "row128") {
+    $Config = @{ gpu_accuracy = "0"; astc_recompression = "2"; use_reactive_flushing = "false";
+                 use_asynchronous_shaders = "true" } + $Config
+} elseif ($Preset) { throw "Unknown preset: $Preset" }
+$extraArgs = @()
+if ($Config.Count) {
+    $baseIni = Join-Path $bin "user\config\sdl2-config.ini"
+    if (-not (Test-Path $baseIni)) { throw "No $baseIni yet: run once without -Config first" }
+    $lines = [Collections.Generic.List[string]](Get-Content $baseIni)
+    foreach ($key in $Config.Keys) {
+        $at = -1
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -eq "$key\default=true" -or $lines[$i] -eq "$key\default=false") { $lines[$i] = "$key\default=false" }
+            elseif ($lines[$i] -like "$key=*") { $lines[$i] = "$key=$($Config[$key])"; $at = $i }
+        }
+        if ($at -lt 0) { throw "Setting $key not found in $baseIni" }
+    }
+    $variantIni = Join-Path $OutDir "$Tag-config.ini"
+    Set-Content -Path $variantIni -Value $lines -Encoding ascii
+    $extraArgs = @("-c", "`"$variantIni`"")
+    Write-Host "config: $variantIni ($(($Config.Keys | % { "$_=$($Config[$_])" }) -join ', '))"
+}
+
 $results = @()
-for ($r = 1; $r -le $Runs; $r++) {
+$first = if ($WarmupRun) { 0 } else { 1 }
+for ($r = $first; $r -le $Runs; $r++) {
     $busy = Get-Process | ? { $_.CPU -ne $null } | Sort-Object CPU -Descending | Select -First 1
     $cpu1 = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime
     Write-Host "run $r/$Runs ($Tag): host CPU $cpu1% before start"
     $saved = @{}
     foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
     try {
-        $p = Start-Process -FilePath $Exe -ArgumentList @("-g", "`"$Game`"") -WorkingDirectory $bin -PassThru
+        $p = Start-Process -FilePath $Exe -ArgumentList (@("-g", "`"$Game`"") + $extraArgs) -WorkingDirectory $bin -PassThru
     } finally {
         foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
     }
     $exited = $p.WaitForExit($Seconds * 1000)
     if (-not $exited) { Stop-Process -Id $p.Id -Force; $p.WaitForExit() } else { Write-Warning "eden-cli exited early (code $($p.ExitCode))" }
     Start-Sleep -Milliseconds 500
-    $dest = Join-Path $OutDir ("{0}-{1}-{2}.log" -f $Tag, (Get-Date -Format "MMdd-HHmmss"), $r)
+    $dest = Join-Path $OutDir ("{0}-{1}-{2}.log" -f $Tag, (Get-Date -Format "MMdd-HHmmss"), $(if ($r) { $r } else { "warmup" }))
     Copy-Item $log $dest
+    if ($r -eq 0) { Write-Host "  warm-up run kept as $dest, not counted"; continue }
     $res = Parse-Log $dest $Warmup
     $results += $res
     Write-Host ("  {0}: {1} presents, frame {2:N2} ms" -f (Split-Path $dest -Leaf), $res.presents, $res.frame_ms_mean)
