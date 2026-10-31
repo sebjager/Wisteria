@@ -1,6 +1,6 @@
 # AGENTS
 
-Read and follow the AI policy found in `docs/policies/AI.md`, and the coding policies found in `docs/policies/Coding.md`.
+Read and follow the AI policy found in `docs/policies/AI.md`, the coding policies found in `docs/policies/Coding.md`, and the legal rules found in `docs/policies/Legal.md`.
 
 Do not, under any circumstances, ever submit PRs or push commits on behalf of the user.
 
