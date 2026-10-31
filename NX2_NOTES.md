@@ -20,6 +20,8 @@ scope for this pass.
   - `EDEN_NX2_IPC_TRACE=1` logs every dispatched CMIF command and non-zero result words.
   - `EDEN_NX2_AUTO_STUB=1` answers every unknown command with an empty success (the
     `use_auto_stub` setting gets reset by eden-cli's config rewrite). Used for all runs below.
+  - `EDEN_NX2_AUDIO_LEVEL=1` logs the audio output peak, underruns and missing frames about
+    every two seconds.
   - `eden-cli --filter "<log filter>"` sets the log filter for one run (e.g. `*:Info Loader:Debug`
     to get module load addresses).
   - `tools/nx2/nso_syms.py <nso> addr|got|find ...` maps module offsets to exported symbols, GOT
