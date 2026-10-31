@@ -31,6 +31,7 @@
 #include <fmt/ostream.h>
 
 #include "common/logging.h"
+#include "common/nx2_compat_report.h"
 #include "common/scm_rev.h"
 #include "common/settings.h"
 #include "common/string_util.h"
@@ -299,6 +300,7 @@ extern "C" SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv) {
     SetUnhandledExceptionFilter(WriteCrashDump);
 #endif
     Nx2Sampler::StartFromEnvironment();
+    static_cast<void>(Common::Nx2Compat::Elapsed()); // starts the compat report clock
     // SDL calls SDL_AppIterate back to back by default, which kept a host core at 100% polling
     // input; 240 Hz is plenty for input and the key script.
     SDL_SetHint(SDL_HINT_MAIN_CALLBACK_RATE, "240");
@@ -528,11 +530,51 @@ static void RunKeyScript(InputCommon::InputSubsystem& input_subsystem) {
     }
 }
 
+// EDEN_NX2_RUN_SECONDS=<n>: quit after n seconds. EDEN_NX2_HANG_SECONDS=<n> (default 60): quit
+// when no frame was presented for n seconds (twice that before the first frame). For unattended
+// compatibility runs with EDEN_NX2_COMPAT_REPORT; both are off when unset.
+static bool g_compat_run_over = false;
+
+static bool CompatRunOver() {
+    static const double run_seconds = [] {
+        const char* value = std::getenv("EDEN_NX2_RUN_SECONDS");
+        return value != nullptr ? std::atof(value) : 0.0;
+    }();
+    static const double hang_seconds = [] {
+        const char* value = std::getenv("EDEN_NX2_HANG_SECONDS");
+        return value != nullptr ? std::atof(value) : (run_seconds > 0.0 ? 60.0 : 0.0);
+    }();
+    static u64 last_presents = 0;
+    static double last_progress = 0.0;
+    const u64 presents = Core::g_nx2_present_count.load(std::memory_order_relaxed);
+    const double now = Common::Nx2Compat::Elapsed();
+    if (presents != last_presents) {
+        last_presents = presents;
+        last_progress = now;
+    }
+    const char* reason = nullptr;
+    if (run_seconds > 0.0 && now >= run_seconds) {
+        reason = "limit";
+    } else if (hang_seconds > 0.0 && now - last_progress >= hang_seconds * (presents == 0 ? 2.0 : 1.0)) {
+        reason = presents == 0 ? "hang_before_first_frame" : "hang";
+    }
+    Common::Nx2Compat::Tick(presents, reason != nullptr ? reason : "running", reason != nullptr);
+    if (reason != nullptr) {
+        LOG_INFO(Frontend, "Compat run over ({}) at {:.1f} s, {} frames", reason, now, presents);
+        g_compat_run_over = true;
+        return true;
+    }
+    return false;
+}
+
 extern "C" SDL_AppResult SDL_AppIterate(void *appstate) {
     SdlState *state = (SdlState *)appstate;
     RunKeyScript(state->input_subsystem);
     if (state->emu_window) {
         state->emu_window->ApplyPendingTitle();
+    }
+    if (CompatRunOver()) {
+        return SDL_APP_SUCCESS;
     }
     return state->emu_window && state->emu_window->IsOpen() ? SDL_APP_CONTINUE : SDL_APP_SUCCESS;
 }
@@ -546,6 +588,9 @@ extern "C" void SDL_AppQuit(void *appstate, SDL_AppResult result) {
     SdlState *state = (SdlState *)appstate;
     if (!state) {
         return;
+    }
+    if (!g_compat_run_over) {
+        Common::Nx2Compat::Tick(Core::g_nx2_present_count.load(), "exit", true);
     }
     state->system.DetachDebugger();
     // SDL calls this even when SDL_AppInit never powered the system on (no ROM given, --help or
