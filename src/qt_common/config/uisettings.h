@@ -181,6 +181,9 @@ struct Values {
     std::vector<Shortcut> shortcuts;
 
     Setting<u32> callout_flags{linkage, 0, "calloutFlags", Category::Ui};
+    // Settings::Recommendations::RulesVersion the recommended settings were last offered for.
+    Setting<u32> recommended_settings_version{linkage, 0, "recommendedSettingsVersion",
+                                              Category::Ui};
 
     // multiplayer settings
     Setting<std::string> multiplayer_nickname{linkage, {}, "nickname", Category::Multiplayer};

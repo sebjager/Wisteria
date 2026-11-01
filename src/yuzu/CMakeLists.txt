@@ -198,6 +198,8 @@ add_executable(yuzu
     multiplayer/validation.h
     startup_checks.cpp
     startup_checks.h
+    recommended_settings_dialog.cpp
+    recommended_settings_dialog.h
     set_play_time_dialog.cpp
     set_play_time_dialog.h
     util/clickable_label.cpp

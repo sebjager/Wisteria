@@ -91,6 +91,8 @@ TextureCache<P>::TextureCache(Runtime& runtime_, Tegra::MaxwellDeviceMemoryManag
         minimum_memory = 0;
     }
     ApplyThresholdOverrides();
+    base_expected_memory = expected_memory;
+    base_critical_memory = critical_memory;
 
     const bool gpu_unswizzle_enabled = Settings::values.gpu_unswizzle_enabled.GetValue();
 
@@ -367,6 +369,24 @@ void TextureCache<P>::TickFrame() {
                                  "Memory margins: base {} MiB, out of memory {} MiB, block slack {} MiB",
                                  margin >> 20, pressure_margin >> 20, slack_margin >> 20);
                     }
+                }
+            }
+            // Switch 1 titles keep the thresholds set at start (from Eden's device memory
+            // figure), but never above the driver's budget: with VRAM usage Aggressive that
+            // figure is the budget at start, and Windows shrinks the budget as other programs
+            // take video memory. Past it allocations fail or the driver pages textures out.
+            // This only ever lowers the thresholds, so Conservative is unchanged in practice.
+            if (!native_thresholds_applied && base_budget_check_frames++ % 30 == 0) {
+                const u64 budget = runtime.GetDeviceMemoryBudget();
+                if (budget > 2_GiB) {
+                    const u64 old_critical = critical_memory;
+                    const u64 margin = (std::min)(budget / 8, 1_GiB);
+                    critical_memory = (std::min)(base_critical_memory, budget - margin);
+                    expected_memory = (std::min)(base_expected_memory, budget - 2 * margin);
+                    const u64 change = critical_memory > old_critical
+                                           ? critical_memory - old_critical
+                                           : old_critical - critical_memory;
+                    ApplyThresholdOverrides(change >= 256_MiB);
                 }
             }
         }

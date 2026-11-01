@@ -1784,6 +1784,7 @@ void Device::CollectPhysicalMemoryInfo() {
     device_access_memory = 0;
     u64 device_initial_usage = 0;
     u64 local_memory = 0;
+    largest_local_heap = 0;
     // EDEN_NX2_VRAM_LIMIT_MIB=<n>: treat every device-local heap as n MiB (small card tests).
     if (const char* value = std::getenv("EDEN_NX2_VRAM_LIMIT_MIB")) {
         heap_size_limit = std::strtoull(value, nullptr, 10) << 20;
@@ -1813,6 +1814,7 @@ void Device::CollectPhysicalMemoryInfo() {
             }
             heap_size = limit(heap_size);
             local_memory += heap_size;
+            largest_local_heap = (std::max)(largest_local_heap, heap_size);
         }
         if (extensions.memory_budget) {
             device_initial_usage += budget.heapUsage[element];

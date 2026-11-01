@@ -1036,6 +1036,13 @@ FN_MAX_LIMIT_LIST
         return device_access_memory;
     }
 
+    /// Size of the largest device-local heap (the card's video memory, or the shared memory
+    /// an integrated GPU may use), after EDEN_NX2_VRAM_LIMIT_MIB. Unlike GetDeviceLocalMemory()
+    /// it is not reduced by the VRAM usage mode, so it describes the hardware.
+    u64 GetLargestDeviceLocalHeap() const {
+        return largest_local_heap;
+    }
+
     bool CanReportMemoryUsage() const {
         return extensions.memory_budget;
     }
@@ -1340,6 +1347,7 @@ private:
     bool supports_conditional_barriers{};      ///< Allows barriers in conditional control flow.
     mutable std::atomic<size_t> custom_border_color_samplers_used{};
     u64 device_access_memory{};                ///< Total size of device local memory in bytes.
+    u64 largest_local_heap{};                  ///< Largest device-local heap in bytes.
     u32 sets_per_pool{};                       ///< Sets per Description Pool
     NvidiaArchitecture nvidia_arch{NvidiaArchitecture::Arch_AmpereOrNewer};
 

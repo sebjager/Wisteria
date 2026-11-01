@@ -35,6 +35,7 @@
 #include "data_dialog.h"
 #include "deps_dialog.h"
 #include "install_dialog.h"
+#include "recommended_settings_dialog.h"
 
 #include "bootmanager.h"
 #include "loading_screen.h"
@@ -136,6 +137,7 @@ static FileSys::VirtualFile VfsDirectoryCreateFileWrapper(const FileSys::Virtual
 #include "common/memory_detect.h"
 #include "common/scm_rev.h"
 #include "common/scope_exit.h"
+#include "common/settings_recommendations.h"
 #include "common/string_util.h"
 
 #ifdef ARCHITECTURE_x86_64
@@ -527,6 +529,10 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     // so now we have to make this completely unnecessary call
     // to prevent the UI from blowing up.
     UpdateUITheme();
+
+    // After the event loop starts (and after a game passed on the command line has booted, in
+    // which case it is skipped).
+    QTimer::singleShot(0, this, &MainWindow::MaybeOfferRecommendedSettings);
 
     if (QStringList args = QApplication::arguments(); args.size() >= 2) {
         QList<QByteArray> qba{};
@@ -1523,6 +1529,9 @@ void MainWindow::ConnectMenuEvents() {
     connect_menu(ui->action_Restart, &MainWindow::OnRestartGame);
     connect_menu(ui->action_Configure, &MainWindow::OnConfigure);
     connect_menu(ui->action_Configure_Current_Game, &MainWindow::OnConfigurePerGame);
+    action_recommended_settings = new QAction(tr("&Recommended Settings..."), this);
+    ui->menu_Emulation->addAction(action_recommended_settings);
+    connect_menu(action_recommended_settings, &MainWindow::OnRecommendedSettings);
 
     // View
     connect_menu(ui->action_Fullscreen, &MainWindow::ToggleFullscreen);
@@ -3704,6 +3713,49 @@ void MainWindow::OnConfigure() {
     UpdateStatusButtons();
     controller_dialog->refreshConfiguration();
     QtCommon::system->ApplySettings();
+}
+
+Settings::Recommendations::HostHardware MainWindow::DetectHostHardware() const {
+    Settings::Recommendations::HostHardware hardware;
+    const auto index = static_cast<size_t>(Settings::values.vulkan_device.GetValue());
+    if (index < vk_device_records.size()) {
+        const auto& record = vk_device_records[index];
+        hardware.gpu_name = record.model_name;
+        hardware.gpu_memory = record.device_local_memory;
+        hardware.gpu_integrated = record.is_integrated;
+    }
+    Settings::Recommendations::DetectHostCpuAndMemory(hardware);
+    return hardware;
+}
+
+void MainWindow::OnRecommendedSettings() {
+    if (emulation_running) {
+        // Applying writes the global settings; a running game may be using its own.
+        QMessageBox::information(this, tr("Recommended Settings"),
+                                 tr("Stop the game first to change the global settings."));
+        return;
+    }
+    RecommendedSettingsDialog dialog(this, DetectHostHardware());
+    UISettings::values.recommended_settings_version = Settings::Recommendations::RulesVersion;
+    if (dialog.exec() == QDialog::Accepted && dialog.ApplySelected() > 0) {
+        QtCommon::system->ApplySettings();
+        UpdateStatusButtons();
+    }
+    config->SaveAllValues();
+}
+
+void MainWindow::MaybeOfferRecommendedSettings() {
+    // Offer once per rule set, and only when a verified recommendation differs from the
+    // current settings (RecommendOffered leaves untested rules out).
+    if (emulation_running || UISettings::values.recommended_settings_version.GetValue() >=
+                                 Settings::Recommendations::RulesVersion) {
+        return;
+    }
+    const auto result = Settings::Recommendations::RecommendOffered(DetectHostHardware());
+    if (RecommendedSettingsDialog::PendingFor(result).empty()) {
+        return;
+    }
+    OnRecommendedSettings();
 }
 
 void MainWindow::OnConfigureTas() {

@@ -111,6 +111,9 @@ add_library(
     settings_enums.h
     settings_input.cpp
     settings_input.h
+    settings_recommendations.cpp
+    settings_recommendations.h
+    settings_recommendations_host.cpp
     settings_setting.h
     slot_vector.h
     socket_types.h

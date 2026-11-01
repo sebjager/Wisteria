@@ -22,6 +22,7 @@
 #include "common/common_types.h"
 #include "common/settings_enums.h"
 #include "core/file_sys/nup_writer.h"
+#include "common/settings_recommendations.h"
 #include "frontend_common/content_manager.h"
 #include "input_common/drivers/tas_input.h"
 #include "qt_common/config/qt_config.h"
@@ -374,6 +375,7 @@ private slots:
     void OnMenuInstallToNAND();
     void OnMenuRecentFile();
     void OnConfigure();
+    void OnRecommendedSettings();
     void OnConfigureTas();
     void OnDecreaseVolume();
     void OnIncreaseVolume();
@@ -447,6 +449,10 @@ private slots:
 #endif
 
 private:
+    /// The selected GPU (from the Vulkan device list), CPU and RAM, for recommended settings.
+    Settings::Recommendations::HostHardware DetectHostHardware() const;
+    /// Shows the recommended settings once per rule set if a verified one is not applied yet.
+    void MaybeOfferRecommendedSettings();
     void RemovePlayTimeData(u64 program_id);
     bool SelectRomFSDumpTarget(const FileSys::ContentProvider&, u64 program_id,
                                u64* selected_title_id, u8* selected_content_record_type);
@@ -577,6 +583,7 @@ private:
     ControllerDialog* controller_dialog = nullptr;
 
     QAction* actions_recent_files[max_recent_files_item];
+    QAction* action_recommended_settings = nullptr;
 
     // stores default icon theme search paths for the platform
     QStringList default_theme_paths;
