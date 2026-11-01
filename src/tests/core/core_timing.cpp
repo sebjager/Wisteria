@@ -33,6 +33,10 @@ std::optional<std::chrono::nanoseconds> HostCallbackTemplate(s64 time,
 
 struct ScopeInit final {
     ScopeInit() {
+        // Catch2 runs test cases in random order, so clear what an earlier case left behind.
+        callbacks_ran_flags.reset();
+        delays.fill(0);
+        expected_callback = 0;
         core_timing.SetMulticore(true);
         core_timing.Initialize([]() {});
     }
