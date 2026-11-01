@@ -1177,9 +1177,11 @@ void BlitScale(Scheduler& scheduler, VkImage src_image, VkImage dst_image, const
     });
 }
 
-// Uncompressed ASTC needs more video memory than a Switch 2 title leaves under a 12 GiB budget
-// (Mario Kart World filled a 16 GB card's 13.5 GB budget; a 12 GB card has ~11.2 GB): there the
-// textures went unbacked (garbage) and the game crashed. Use BC3 for this session.
+// Uncompressed ASTC needs more video memory than a Switch 2 title leaves under a 20 GiB budget:
+// textures went unbacked (garbage) and the game crashed. A 12 GB card (~11.2 GB budget) failed,
+// and so did a 16 GB card: Mario Kart World filled its 13.5-14.3 GB budget to 12.5-14 GB and
+// crashed in 6 of 9 runs, while with BC3 it stayed at 5-7 GB without a crash (2026-11-01). Only
+// 24 GB cards keep uncompressed ASTC by default. Use BC3 for this session.
 void UseBc3ForSwitch2OnSmallCards(const Device& device) {
     using namespace Common::Literals;
     if (!Settings::CurrentProgramIsSwitch2() || device.IsOptimalAstcSupported() ||
