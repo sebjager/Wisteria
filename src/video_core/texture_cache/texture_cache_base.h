@@ -136,6 +136,11 @@ class TextureCache : public VideoCommon::ChannelSetupCaches<TextureCacheChannelI
     u64 native_critical_memory{};
     u64 native_expected_memory{};
     u64 budget_check_frames{};
+    // Switch 1 titles: the thresholds set at start, and a frame counter for clamping them to the
+    // driver's budget (TickFrame).
+    u64 base_expected_memory{};
+    u64 base_critical_memory{};
+    u64 base_budget_check_frames{};
     u64 astc_opaque_images{};
     u64 astc_alpha_images{};
     std::vector<u8> astc_scan_buffer;
