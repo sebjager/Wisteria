@@ -121,9 +121,11 @@ jobs:
           sccache --show-stats
           test -f build/bin/eden-cli.exe
 
+      # Bundled dependencies such as zlib register their own CTest tests, which need a system
+      # install to configure; only Eglantine's own test program is run.
       - name: Run tests
         shell: bash
-        run: ctest --test-dir build --output-on-failure --timeout 600
+        run: ctest --test-dir build --output-on-failure --timeout 600 -R '^tests$'
 
       # Only the program itself is uploaded: no user/ folder, config, keys or firmware.
       - name: Upload eden-cli
