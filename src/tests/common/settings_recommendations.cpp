@@ -65,13 +65,16 @@ TEST_CASE("Recommendations: untested rules are not offered", "[common]") {
 }
 
 TEST_CASE("Recommendations: notices for small RAM and small cards", "[common]") {
-    REQUIRE(Recommend(Pc(16 * GiB)).notices.empty());
-    REQUIRE(Recommend(Pc(16 * GiB, false, 8 * GiB)).notices.size() == 1);
+    REQUIRE(Recommend(Pc(24 * GiB)).notices.empty());
+    REQUIRE(Recommend(Pc(24 * GiB, false, 8 * GiB)).notices.size() == 1);
     // 16 GB machines report a little under 16 GiB.
-    REQUIRE(Recommend(Pc(16 * GiB, false, 15 * GiB + GiB / 2)).notices.empty());
-    // 12 GB card: Switch 2 titles fall back to BC3.
-    REQUIRE(Recommend(Pc(12 * GiB)).notices.size() == 1);
+    REQUIRE(Recommend(Pc(24 * GiB, false, 15 * GiB + GiB / 2)).notices.empty());
+    // Up to 20 GB cards: Switch 2 titles fall back to BC3.
+    REQUIRE(Recommend(Pc(16 * GiB)).notices.size() == 1);
+    REQUIRE(Recommend(Pc(20 * GiB)).notices.size() == 1);
     REQUIRE(Recommend(Pc(8 * GiB, false, 8 * GiB)).notices.size() == 2);
+    // Integrated GPUs: no video memory notice.
+    REQUIRE(Recommend(Pc(16 * GiB, true)).notices.empty());
 }
 
 TEST_CASE("Recommendations: hardware description", "[common]") {

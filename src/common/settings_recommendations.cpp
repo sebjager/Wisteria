@@ -56,15 +56,15 @@ void MemoryNotices(const HostHardware& hardware, Result& result) {
             " of RAM. Switch 2 games emulate 12 GB of console memory on top of what Eden itself "
             "uses, so they may stutter or fail to start. 16 GB or more is a better fit.");
     }
-    // UseBc3ForSwitch2OnSmallCards (vk_texture_cache.cpp) switches to BC3 below a 12 GiB budget,
-    // which every card up to 12 GB has once Windows takes its share.
-    if (!hardware.gpu_integrated && hardware.gpu_memory != 0 &&
-        hardware.gpu_memory < 12 * GiB + GiB / 2) {
+    // UseBc3ForSwitch2OnSmallCards (vk_texture_cache.cpp) switches to BC3 below a 20 GiB budget,
+    // which every card up to 20 GB has once the OS takes its share; 24 GB cards keep ASTC.
+    if (!hardware.gpu_integrated && hardware.gpu_memory != 0 && hardware.gpu_memory < 22 * GiB) {
         result.notices.push_back(
             "Your GPU has " + FormatGiB(hardware.gpu_memory) +
             " of video memory. Switch 2 games re-compress ASTC textures to BC3 on it "
-            "automatically (uncompressed they need a 12 GiB budget); set EDEN_NX2_KEEP_ASTC=1 "
-            "to keep them uncompressed.");
+            "automatically: uncompressed they need a 20 GiB budget, and on a 16 GB card Mario "
+            "Kart World ran out of video memory and crashed. BC3 looks slightly less sharp. "
+            "EDEN_NX2_KEEP_ASTC=1 keeps them uncompressed.");
     }
 }
 
