@@ -7,6 +7,7 @@
 #include <tuple>
 #include <vector>
 #include <optional>
+#include <span>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -45,8 +46,18 @@ public:
     }
 
     void UpdatePagesCachedBatch(std::span<const std::pair<DAddr, size_t>> ranges, s32 delta) {
-        // TODO: for now assume fine?
+        batch_calls.push_back({{ranges.begin(), ranges.end()}, delta});
+        for (const auto& [addr, size] : ranges) {
+            UpdatePagesCachedCount(addr, size, delta);
+        }
     }
+
+    struct BatchCall {
+        std::vector<std::pair<DAddr, size_t>> ranges;
+        s32 delta;
+        bool operator==(const BatchCall&) const = default;
+    };
+    [[nodiscard]] const std::vector<BatchCall>& BatchCalls() const noexcept { return batch_calls; }
 
     [[nodiscard]] size_t UpdateCalls() const noexcept { return update_calls; }
     [[nodiscard]] const std::vector<std::tuple<DAddr, u64, int>>& UpdateCallsList() const noexcept { return calls; }
@@ -67,6 +78,7 @@ public:
 private:
     ::Common::unordered_map<u64, int> page_table;
     std::vector<std::tuple<DAddr, u64, int>> calls;
+    std::vector<BatchCall> batch_calls;
     size_t update_calls = 0;
 };
 
@@ -557,20 +569,25 @@ TEST_CASE("MemoryTracker: Cached write downloads") {
     REQUIRE(rasterizer.Count() == 0);
 }
 
-TEST_CASE("MemoryTracker: FlushCachedWrites batching") {
+TEST_CASE("MemoryTracker: Tracking changes are batched") {
+    using BatchCall = RasterizerInterface::BatchCall;
     RasterizerInterface rasterizer;
     std::optional<MemoryTracker> memory_track(rasterizer);
     memory_track->UnmarkRegionAsCpuModified(c, WORD * 2);
-    memory_track->CachedCpuWrite(c + PAGE, PAGE);
-    memory_track->CachedCpuWrite(c + PAGE * 2, PAGE);
-    memory_track->CachedCpuWrite(c + PAGE * 4, PAGE);
-    REQUIRE(rasterizer.UpdateCalls() == 0);
-    memory_track->FlushCachedWrites();
-    // Now we expect a single batch call (coalesced ranges) to the device memory manager
-    REQUIRE(rasterizer.UpdateCalls() == 1);
-    const auto& calls = rasterizer.UpdateCallsList();
-    REQUIRE(std::get<0>(calls[0]) == c + PAGE);
-    REQUIRE(std::get<1>(calls[0]) == PAGE * 3);
+    REQUIRE(rasterizer.BatchCalls().size() == 1);
+    REQUIRE(rasterizer.BatchCalls().back() == BatchCall{{{c, WORD * 2}}, 1});
+
+    memory_track->MarkRegionAsCpuModified(c + PAGE, PAGE * 2);
+    memory_track->MarkRegionAsCpuModified(c + PAGE * 4, PAGE);
+    REQUIRE(rasterizer.Count() == WORD * 2 / PAGE - 3);
+
+    // One upload pass re-tracks both modified runs with a single batched call.
+    int num = 0;
+    memory_track->ForEachUploadRange(c, WORD, [&](u64 offset, u64 size) { ++num; });
+    REQUIRE(num == 2);
+    REQUIRE(rasterizer.BatchCalls().size() == 4);
+    REQUIRE(rasterizer.BatchCalls().back() == BatchCall{{{c + PAGE, PAGE * 2}, {c + PAGE * 4, PAGE}}, 1});
+    REQUIRE(rasterizer.Count() == WORD * 2 / PAGE);
 }
 
 TEST_CASE("DeviceMemoryManager: UpdatePagesCachedBatch basic") {
