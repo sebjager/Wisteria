@@ -161,7 +161,9 @@ set_source_files_properties(zbic_compression.cpp PROPERTIES
     COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wno-unused-function;-Wno-missing-declarations;-Wno-shadow>;$<$<CXX_COMPILER_ID:MSVC>:/wd4505;/wd5245>")
 
 if(WIN32)
-    target_sources(common PRIVATE windows/timer_resolution.cpp
+    target_sources(common PRIVATE windows/high_resolution_event.cpp
+        windows/high_resolution_event.h
+        windows/timer_resolution.cpp
         windows/timer_resolution.h)
     target_link_libraries(common PRIVATE ntdll)
 endif()

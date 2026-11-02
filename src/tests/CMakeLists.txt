@@ -63,6 +63,10 @@ add_executable(tests
 
 create_target_directory_groups(tests)
 
+if(WIN32)
+    target_sources(tests PRIVATE common/windows_timer.cpp)
+endif()
+
 target_link_libraries(tests PRIVATE common core input_common video_core)
 target_link_libraries(tests PRIVATE ${PLATFORM_LIBRARIES} Catch2::Catch2WithMain Threads::Threads)
 
