@@ -16,6 +16,7 @@
 #include <unordered_set>
 #include "common/assert.h"
 #include "common/logging.h"
+#include "common/nx2_compat_report.h"
 #include "shader_recompiler/exception.h"
 #include "core/core.h"
 #include "video_core/gpu_split.h"
@@ -552,6 +553,7 @@ bool KeplerCompute::DispatchNativeCompute(const NativeQmdScheduler::Descriptor& 
         static std::unordered_set<std::string> logged;
         if (logged.insert(error.what()).second) {
             LOG_ERROR(HW_GPU, "Native compute shader rejected: {}", error.what());
+            Common::Nx2Compat::NoteShaderReject("compute", error.what());
         }
         if (std::string_view{error.what()}.find("matrix multiply") != std::string_view::npos) {
             DescribeNativeResources(qmd);
