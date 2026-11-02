@@ -24,6 +24,9 @@
 
 namespace AudioCore::Sink {
 
+// About 2 ms at 48 kHz.
+constexpr u32 UnderrunFadeFrames = 96;
+
 void SinkStream::AppendBuffer(SinkBuffer& buffer, std::span<s16> samples) {
     if (type == StreamType::In)
         return;
@@ -190,8 +193,19 @@ void SinkStream::ProcessAudioOutAndRender(std::span<s16> output_buffer, std::siz
 
             if (!queue.TryPop(playing_buffer)) {
                 lk.unlock();
-                for (size_t i = frames_written; i < num_frames; i++)
-                    std::memcpy(&output_buffer[i * frame_size], last_frame.data(), frame_size_bytes);
+                // Underrun: fade the last frame out instead of holding it, so the gap doesn't click.
+                if (underrun_gain == 1.0f) {
+                    const s16* from = frames_written > 0 ? &output_buffer[(frames_written - 1) * frame_size]
+                                                         : last_frame.data();
+                    std::memcpy(underrun_hold.data(), from, frame_size_bytes);
+                    ++level_underruns;
+                }
+                for (size_t i = frames_written; i < num_frames; i++) {
+                    underrun_gain = (std::max)(underrun_gain - 1.0f / UnderrunFadeFrames, 0.0f);
+                    for (size_t ch = 0; ch < frame_size; ch++)
+                        output_buffer[i * frame_size + ch] = s16(f32(underrun_hold[ch]) * underrun_gain);
+                }
+                level_missing_frames += num_frames - frames_written;
                 frames_written = num_frames;
                 continue;
             }
@@ -204,6 +218,19 @@ void SinkStream::ProcessAudioOutAndRender(std::span<s16> output_buffer, std::siz
         const size_t frames_available = std::min<u64>(playing_buffer.frames - playing_buffer.frames_played, num_frames - frames_written);
 
         samples_buffer.Pop(&output_buffer[frames_written * frame_size], frames_available * frame_size);
+
+        // Fade back in after an underrun, from the gain the fade-out reached.
+        if (frames_available > 0 && underrun_gain < 1.0f) {
+            fade_in_left = u32((1.0f - underrun_gain) * UnderrunFadeFrames);
+            underrun_gain = 1.0f;
+        }
+        for (size_t i = 0; i < frames_available && fade_in_left > 0; i++, fade_in_left--) {
+            const f32 gain = 1.0f - f32(fade_in_left) / UnderrunFadeFrames;
+            for (size_t ch = 0; ch < frame_size; ch++) {
+                s16& sample = output_buffer[(frames_written + i) * frame_size + ch];
+                sample = s16(f32(sample) * gain);
+            }
+        }
 
         frames_written += frames_available;
         actual_frames_written += frames_available;
@@ -222,9 +249,12 @@ void SinkStream::ProcessAudioOutAndRender(std::span<s16> output_buffer, std::siz
         }
         level_frames += num_frames;
         if (level_frames >= TargetSampleRate * 2) {
-            LOG_INFO(Audio, "Audio output peak over {} frames: {} of 32767", level_frames, level_peak);
+            LOG_INFO(Audio, "Audio output peak over {} frames: {} of 32767, {} underruns, {} frames missing",
+                     level_frames, level_peak, level_underruns, level_missing_frames);
             level_frames = 0;
             level_peak = 0;
+            level_underruns = 0;
+            level_missing_frames = 0;
         }
     }
 
