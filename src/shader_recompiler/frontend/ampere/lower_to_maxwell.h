@@ -2955,14 +2955,20 @@ inline LoweredProgram LowerToMaxwellWith(std::span<const Instruction> code, u32 
                  (u64{insn.Bits(76, 4)} << 48) | (u64{1} << 52) | (u64{insn.Bits(80, 1)} << 55));
             break;
         }
-        case 0x234: case 0x434: { // HSETP2 with a register (B swizzle 60-61, abs 62, neg 63) or an
+        case 0x234: case 0x434: case 0x634: { // HSETP2 with a register (B swizzle 60-61, abs 62, neg 63) or an
                       // immediate half pair: A swizzle 74-75 (neg 72, abs 73),
                       // combine 69-70, H_AND 71, compare 76-79, FTZ 80, P/Q 81-86, input 87-90.
             u64 source = u64{250} << 20;
-            if (opcode == 0x234) {
-                if ((insn.words[1] & 0x0fffff00U) || insn.Bits(64, 5))
+            if (opcode == 0x234 || opcode == 0x634) {
+                if (insn.Bits(64, 5) || (opcode == 0x234 && (insn.words[1] & 0x0fffff00U)))
                     return fail(index, "native half comparison mode");
-                source = (u64{insn.Bits(32, 8)} << 20) | (u64{insn.Bits(60, 2)} << 28) |
+                u32 b = insn.Bits(32, 8);
+                if (opcode == 0x634) {
+                    if (!valid_cbuf()) return fail(index, "native constant buffer address");
+                    emit(0x4c98000000000000ULL | predicate | 250 | (u64{15} << 39) | cbuf());
+                    b = 250;
+                }
+                source = (u64{b} << 20) | (u64{insn.Bits(60, 2)} << 28) |
                          (u64{insn.Bits(62, 1)} << 30) | (u64{insn.Bits(63, 1)} << 31);
             } else {
                 mov_imm(250, insn.words[1]);
