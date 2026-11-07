@@ -61,6 +61,7 @@ add_executable(tests
     video_core/shader_attributes.cpp
     video_core/indirect_reset.cpp
     video_core/invalidation_accumulator.cpp
+    video_core/virtual_range_cache.cpp
     input_common/calibration_configuration_job.cpp
 )
 
