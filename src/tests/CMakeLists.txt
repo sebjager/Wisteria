@@ -51,6 +51,7 @@ add_executable(tests
     video_core/uniform_stream_reuse.cpp
     video_core/shader_invalidation.cpp
     video_core/descriptor_table.cpp
+    video_core/descriptor_payload_growth.cpp
     video_core/global_address_tracking.cpp
     video_core/global_atomic_routing.cpp
     video_core/nvn_storage_descriptor.cpp
