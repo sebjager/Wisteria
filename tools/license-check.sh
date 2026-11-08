@@ -7,6 +7,9 @@
 # - added source files carry an SPDX license header,
 # - no added file looks like keys, firmware or a game dump,
 # - no commit names an AI as co-author.
+# The SPDX and co-author checks cover this fork's own commits: the non-merge commits on the
+# first-parent line. Upstream history that comes in through a merge follows upstream's rules.
+# The forbidden-file check covers everything the range adds.
 # Usage: tools/license-check.sh [base-ref]
 
 base_ref="${1:-origin/nx2}"
@@ -27,8 +30,11 @@ if [ -n "$forbidden" ]; then
     status=1
 fi
 
+own_commits=$(git rev-list --first-parent --no-merges "$base..HEAD")
+own_added=$(for c in $own_commits; do git diff-tree --no-commit-id --name-only --diff-filter=A -r "$c"; done | sort -u)
+
 missing=""
-for f in $added; do
+for f in $own_added; do
     case "$f" in
         *.c|*.cc|*.cpp|*.h|*.hpp|*.inc|*.kt|*.java|*.py|*.sh|*.ps1|*.cmake|CMakeLists.txt|*/CMakeLists.txt|\
         *.glsl|*.comp|*.frag|*.vert|*.geom|*.tesc|*.tese|*.fx|*.yml|*.yaml) ;;
@@ -43,7 +49,7 @@ if [ -n "$missing" ]; then
     status=1
 fi
 
-ai_coauthor=$(git log --format='%h %s%n%b' "$base..HEAD" |
+ai_coauthor=$(git log --first-parent --no-merges --format='%h %s%n%b' "$base..HEAD" |
     grep -iE '^(co-authored-by|signed-off-by):.*(claude|anthropic|copilot|openai|chatgpt|gemini)' || true)
 if [ -n "$ai_coauthor" ]; then
     echo "error: an AI is named as co-author or signer; use 'Assisted-by:' instead:"
