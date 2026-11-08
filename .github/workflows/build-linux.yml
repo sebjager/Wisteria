@@ -50,7 +50,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x86_64, aarch64]
-        pgo: ${{ fromJSON(inputs.pgo == 'both' && '[false, true]' || '[false]') }}
+        pgo: ${{ fromJSON((inputs.pgo == 'both' || inputs.pgo == 'lto') && '[false, true]' || '[false]') }}
 
     steps:
       - name: Check out source

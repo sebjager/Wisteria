@@ -32,9 +32,9 @@ on:
         options: [all, linux, windows, macos]
         default: all
       pgo:
-        description: Also build the PGO variants
+        description: Also build the PGO variants (lto adds a Windows PGO + ThinLTO build)
         type: choice
-        options: [none, both]
+        options: [none, both, lto]
         default: none
       publish:
         description: Publish the binaries as a GitHub pre-release (otherwise only workflow artifacts)

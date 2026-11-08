@@ -2,7 +2,8 @@ name: build-windows
 
 # Reusable: builds the Windows binaries. The MSVC build always runs; with pgo=both the MinGW clang
 # PGO build runs too (MSVC cannot read an LLVM .profdata file, so Windows PGO uses MSYS2's clang
-# like Eden does).
+# like Eden does). pgo=lto adds a second MinGW build with the same profile plus ThinLTO, for A/B
+# measurements against the plain PGO build.
 on:
   workflow_call:
     inputs:
@@ -25,7 +26,7 @@ on:
         type: boolean
         default: true
       pgo:
-        description: none or both
+        description: none, both, or lto (both plus a PGO + ThinLTO build)
         type: string
         default: none
 
@@ -156,11 +157,15 @@ jobs:
           retention-days: 7
 
   mingw-pgo:
-    name: windows-x86_64-pgo
-    if: inputs.pgo == 'both'
+    name: windows-x86_64-pgo${{ matrix.lto && '-lto' || '' }}
+    if: inputs.pgo == 'both' || inputs.pgo == 'lto'
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        lto: ${{ fromJSON(inputs.pgo == 'lto' && '[false, true]' || '[false]') }}
     env:
-      PLATFORM: windows-x86_64-pgo
+      PLATFORM: windows-x86_64-pgo${{ matrix.lto && '-lto' || '' }}
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CCACHE_MAXSIZE: 1000M
     steps:
@@ -223,7 +228,9 @@ jobs:
           set -euo pipefail
           profile="-fprofile-use=$(cygpath -m "$PWD/eglantine.profdata") -Wno-backend-plugin \
             -Wno-profile-instr-unprofiled -Wno-profile-instr-out-of-date"
+          # ENABLE_LTO turns on CMake's IPO, which is -flto=thin for clang; lld does the ThinLTO link.
           cmake -S . -B build/release -G Ninja \
+            -DENABLE_LTO=${{ matrix.lto && 'ON' || 'OFF' }} \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=OFF \
             -DYUZU_TESTS=OFF \
@@ -297,7 +304,7 @@ jobs:
       - name: Upload MinGW binary
         uses: actions/upload-artifact@v7
         with:
-          name: eglantine-windows-x86_64-pgo-${{ inputs.sha }}
+          name: eglantine-windows-x86_64-pgo${{ matrix.lto && '-lto' || '' }}-${{ inputs.sha }}
           path: build/release/bin/
           if-no-files-found: error
           retention-days: 7
