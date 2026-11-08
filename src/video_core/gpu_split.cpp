@@ -118,11 +118,18 @@ void GpuSplit::MaybeStart(Core::System& system_) {
         return;
     }
     // The front reads command lists straight from guest memory; a read that flushes the caches
-    // first (safe DMA, accurate GPU) would touch back-owned state. The settings can change
-    // mid-game: hand the engines back to the front (and start again when they allow it).
+    // first (safe DMA, accurate GPU) would touch back-owned state. With EDEN_NX2_SPLIT_HIGH (on
+    // unless =0) those settings keep the split: the front reads command lists as with the split
+    // at any accuracy, flushing GPU-written command pages on the back (FlushGpuWrittenCommands).
+    // The settings can change mid-game: hand the engines back to the front (and start again when
+    // they allow it).
+    static const bool split_high = [] {
+        const char* value = std::getenv("EDEN_NX2_SPLIT_HIGH");
+        return value == nullptr || value[0] != '0';
+    }();
     const bool safe_reads = Settings::IsDMALevelDefault() ? Settings::IsGPULevelHigh()
                                                           : Settings::IsDMALevelSafe();
-    const bool allowed = !safe_reads && !Settings::IsGPULevelHigh() &&
+    const bool allowed = (split_high || (!safe_reads && !Settings::IsGPULevelHigh())) &&
                          Settings::values.renderer_backend.GetValue() == Settings::RendererBackend::Vulkan;
     if (active && !allowed) {
         Drain();

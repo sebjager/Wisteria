@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstdio>
+#include <vector>
 
 #include "common/scope_exit.h"
 #include "common/settings.h"
@@ -297,6 +298,7 @@ bool DmaPusher::Step() {
                 ProcessCommands(commands.subspan(command_resume_offset), command_resume_offset);
         } else {
             FlushGpuWrittenCommands(dma_state.dma_get, size_t{header.size} * sizeof(u32));
+            VerifySplitSafeRead(dma_state.dma_get, size_t{header.size} * sizeof(u32));
             Tegra::Memory::GpuGuestMemory<Tegra::CommandHeader, Tegra::Memory::GuestMemoryFlags::UnsafeRead>headers(memory_manager, dma_state.dma_get, header.size, &command_headers);
             const std::span<const CommandHeader> commands{headers.data(), headers.size()};
             RecordParsedEntry(header, commands);
@@ -793,6 +795,34 @@ void DmaPusher::FlushGpuWrittenCommands(GPUVAddr address, size_t size) {
             device && Tegra::Nx2IsCommandListPage(*device)) {
             rasterizer->NoteGpuWrittenCommandListSynced(*device);
         }
+    }
+}
+
+void DmaPusher::VerifySplitSafeRead(GPUVAddr address, size_t size) {
+    static const bool verify = std::getenv("EDEN_NX2_SPLIT_HIGH_VERIFY") != nullptr;
+    auto& split = VideoCommon::GpuSplit::Get();
+    if (!verify || size == 0 || !split.Active() ||
+        !(Settings::IsDMALevelDefault() ? Settings::IsGPULevelHigh() : Settings::IsDMALevelSafe())) {
+        return;
+    }
+    std::vector<u32> as_read(size / sizeof(u32));
+    memory_manager.ReadBlockUnsafe(address, as_read.data(), as_read.size() * sizeof(u32));
+    // What a single thread's safe read would see: everything sent before ran, all caches flushed.
+    split.Drain();
+    split.Run([memory = &memory_manager, address, size] { memory->FlushRegion(address, size); });
+    std::vector<u32> flushed(as_read.size());
+    memory_manager.ReadBlockUnsafe(address, flushed.data(), flushed.size() * sizeof(u32));
+    static std::atomic<u64> checks{};
+    static std::atomic<u64> mismatches{};
+    ++checks;
+    if (as_read != flushed && mismatches.fetch_add(1) < 32) {
+        const auto at = std::ranges::mismatch(as_read, flushed).in1 - as_read.begin();
+        LOG_ERROR(HW_GPU, "Split at High: command list at {:#x} (+{:#x}) read {:#x}, safe read {:#x}",
+                  address, at * sizeof(u32), as_read[at], flushed[at]);
+    }
+    if ((checks & 0xffff) == 0) {
+        LOG_INFO(HW_GPU, "Split at High verify: {} checks, {} differed", checks.load(),
+                 mismatches.load());
     }
 }
 
