@@ -48,6 +48,7 @@ add_library(
     elf.h
     error.cpp
     error.h
+    event_wait.h
     fiber.cpp
     fiber.h
     fixed_point.h
@@ -72,6 +73,7 @@ add_library(
     input.h
     intrusive_red_black_tree.h
     literals.h
+    log_ring.h
     logging.cpp
     logging.h
     lz4_compression.cpp
@@ -81,6 +83,10 @@ add_library(
     memory_detect.h
     multi_level_page_table.cpp
     multi_level_page_table.h
+    nx2_compat_report.cpp
+    nx2_compat_report.h
+    nx2_sampler.cpp
+    nx2_sampler.h
     overflow.h
     page_table.cpp
     page_table.h
@@ -105,6 +111,9 @@ add_library(
     settings_enums.h
     settings_input.cpp
     settings_input.h
+    settings_recommendations.cpp
+    settings_recommendations.h
+    settings_recommendations_host.cpp
     settings_setting.h
     slot_vector.h
     socket_types.h
@@ -152,10 +161,12 @@ add_library(
 
 set_source_files_properties(zbic_compression.cpp PROPERTIES
     INCLUDE_DIRECTORIES "${ZBIC_INCLUDE_DIR}"
-    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:Clang,GNU>:-Wno-unused-function;-Wno-missing-declarations;-Wno-shadow>;$<$<CXX_COMPILER_ID:MSVC>:/wd4505;/wd5245>")
+    COMPILE_OPTIONS "$<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-Wno-unused-function;-Wno-missing-declarations;-Wno-shadow>;$<$<CXX_COMPILER_ID:MSVC>:/wd4505;/wd5245>")
 
 if(WIN32)
-    target_sources(common PRIVATE windows/timer_resolution.cpp
+    target_sources(common PRIVATE windows/high_resolution_event.cpp
+        windows/high_resolution_event.h
+        windows/timer_resolution.cpp
         windows/timer_resolution.h)
     target_link_libraries(common PRIVATE ntdll)
 endif()

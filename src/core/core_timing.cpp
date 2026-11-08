@@ -5,11 +5,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 #include <tuple>
 #include "common/cpu_features.h"
 #include "common/cpu_features.h"
+#include "common/logging.h"
 
 #ifdef _WIN32
 #include "common/windows/timer_resolution.h"
@@ -60,7 +62,14 @@ struct CoreTiming::Event {
     }
 };
 
-CoreTiming::CoreTiming() = default;
+CoreTiming::CoreTiming()
+#ifdef _WIN32
+    : event{[] {
+          const char* value = std::getenv("EDEN_WINDOWS_TIMER_SPIN");
+          return value == nullptr || value[0] == '0';
+      }()}
+#endif
+{}
 CoreTiming::~CoreTiming() {
     Reset();
 }
@@ -75,6 +84,11 @@ void CoreTiming::Initialize(std::function<void()>&& on_thread_init_) {
             Common::SetCurrentThreadName("HostTiming");
             Common::SetCurrentThreadPriority(Common::ThreadPriority::VeryHigh);
             Common::SetCurrentThreadToPerformanceCores();
+#ifdef _WIN32
+            LOG_INFO(Core, "Host timer: {}", event.IsHighResolution()
+                                                ? "Windows high-resolution hybrid wait"
+                                                : "legacy instruction wait");
+#endif
             on_thread_init();
             has_started = true;
 

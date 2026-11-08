@@ -7,6 +7,7 @@
 #include <bitset>
 #include <chrono>
 #include <cstdlib>
+#include <future>
 #include <memory>
 #include <optional>
 #include <string>
@@ -33,7 +34,6 @@ std::optional<std::chrono::nanoseconds> HostCallbackTemplate(s64 time,
 
 struct ScopeInit final {
     ScopeInit() {
-        // Catch2 runs test cases in random order, so clear what an earlier case left behind.
         callbacks_ran_flags.reset();
         delays.fill(0);
         expected_callback = 0;
@@ -55,6 +55,28 @@ u64 TestTimerSpeed(Core::Timing::CoreTiming& core_timing) {
 }
 
 } // Anonymous namespace
+
+TEST_CASE("CoreTiming[EarlierEventWakesTimer]", "[core]") {
+    using namespace std::chrono_literals;
+    std::promise<void> completed;
+    auto result = completed.get_future();
+    ScopeInit guard;
+    auto& timing = guard.core_timing;
+    auto later = Core::Timing::CreateEvent("later", [](s64, std::chrono::nanoseconds) {
+        return std::nullopt;
+    });
+    auto earlier = Core::Timing::CreateEvent("earlier", [&](s64, std::chrono::nanoseconds) {
+        completed.set_value();
+        return std::nullopt;
+    });
+    timing.ScheduleEvent(5s, later);
+    timing.SyncPause(false);
+    std::this_thread::sleep_for(10ms);
+    timing.ScheduleEvent(2ms, earlier);
+    const auto status = result.wait_for(500ms);
+    timing.SyncPause(true);
+    REQUIRE(status == std::future_status::ready);
+}
 
 TEST_CASE("CoreTiming[BasicOrder]", "[core]") {
     ScopeInit guard;

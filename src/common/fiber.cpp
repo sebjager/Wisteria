@@ -25,8 +25,10 @@ struct Fiber::FiberImpl {
     FiberImpl() {}
 
     u32 canary_1 = CANARY_VALUE;
-    std::array<u8, DEFAULT_STACK_SIZE> stack{};
-    std::array<u8, DEFAULT_STACK_SIZE> rewind_stack{};
+    // Left uninitialized: the host gives a stack's pages memory only as they are used. Zero-filled
+    // std::arrays (and a second stack nothing switched to) made every fiber, one per guest thread,
+    // hold 4 MiB: ~750 MiB for title 1's ~190 threads.
+    std::unique_ptr<u8[]> stack;
     u32 canary_2 = CANARY_VALUE;
 
     boost::context::detail::fcontext_t context{};
@@ -38,7 +40,6 @@ struct Fiber::FiberImpl {
     std::shared_ptr<Fiber> previous_fiber;
 
     u8* stack_limit = nullptr;
-    u8* rewind_stack_limit = nullptr;
     bool is_thread_fiber = false;
     bool released = false;
 };
@@ -49,10 +50,10 @@ void Fiber::SetRewindPoint(std::function<void()>&& rewind_func) {
 
 Fiber::Fiber(std::function<void()>&& entry_point_func) : impl{std::make_unique<FiberImpl>()} {
     impl->entry_point = std::move(entry_point_func);
-    impl->stack_limit = impl->stack.data();
-    impl->rewind_stack_limit = impl->rewind_stack.data();
+    impl->stack.reset(new u8[DEFAULT_STACK_SIZE]);
+    impl->stack_limit = impl->stack.get();
     u8* stack_base = impl->stack_limit + DEFAULT_STACK_SIZE;
-    impl->context = boost::context::detail::make_fcontext(stack_base, impl->stack.size(), [](boost::context::detail::transfer_t transfer) -> void {
+    impl->context = boost::context::detail::make_fcontext(stack_base, DEFAULT_STACK_SIZE, [](boost::context::detail::transfer_t transfer) -> void {
         auto* fiber = static_cast<Fiber*>(transfer.data);
         ASSERT(fiber && fiber->impl && fiber->impl->previous_fiber && fiber->impl->previous_fiber->impl);
         ASSERT(fiber->impl->canary_1 == CANARY_VALUE);
@@ -90,9 +91,14 @@ void Fiber::YieldTo(std::weak_ptr<Fiber> weak_from, Fiber& to) {
     to.impl->guard.lock();
     to.impl->previous_fiber = weak_from.lock();
 
+    // Don't keep a reference on this stack across the switch: a fiber whose thread exits is never
+    // switched back to, so this frame never unwinds and a weak_ptr here would leak its control
+    // block. Code after the jump only runs once something switches back, so "from" is alive then.
+    Fiber* const from = to.impl->previous_fiber.get();
+    weak_from.reset();
+
     auto transfer = boost::context::detail::jump_fcontext(to.impl->context, &to);
-    // "from" might no longer be valid if the thread was killed
-    if (auto from = weak_from.lock()) {
+    if (from != nullptr) {
         if (from->impl->previous_fiber == nullptr) {
             ASSERT(false && "previous_fiber is nullptr!");
         } else {

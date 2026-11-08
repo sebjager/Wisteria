@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: license-check
+
+# Checks the commits a work branch or pull request adds on top of nx2 against
+# docs/policies/Legal.md. nx2 itself follows upstream and is not checked.
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - nx2
+      - nx2-experimental
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  license-check:
+    name: Licenses, keys and AI attribution
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check new commits
+        shell: bash
+        run: |
+          base="origin/${{ github.base_ref || 'nx2' }}"
+          tools/license-check.sh "$base"

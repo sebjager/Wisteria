@@ -8,6 +8,7 @@
 class SdlConfig final : public Config {
 public:
     explicit SdlConfig(std::optional<std::string> config_path);
+    explicit SdlConfig(const std::string& config_name, ConfigType config_type);
     ~SdlConfig() override;
 
     void ReloadAllValues() override;

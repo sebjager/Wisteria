@@ -29,6 +29,7 @@
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/engines/maxwell_3d.h"
 #include "video_core/dirty_flags.h"
+#include "video_core/gpu_split.h"
 #include "video_core/memory_manager.h"
 #include "video_core/rasterizer_interface.h"
 #include "video_core/macro.h"
@@ -1439,6 +1440,12 @@ void MacroEngine::Execute(Core::System& system, Engines::Maxwell3D& maxwell3d, u
                             LOG_INFO(HW_GPU, "Native MME DMA read flushed GPU-written memory ({} times)", flushes);
                         }
                     }
+                    // Accurate GPU mode holds report and semaphore writes in the query cache until a
+                    // fence: write them out, or occlusion predicates read stale values. The split only
+                    // runs with immediate payload writes, and the query cache belongs to its back.
+                    if (!VideoCommon::GpuSplit::Get().Active()) {
+                        memory.FlushRegion(source, read_bytes, VideoCommon::CacheType::QueryCache);
+                    }
                     static u32 dma_logs{};
                     if (dma_logs < 400) {
                         ++dma_logs;
@@ -1447,8 +1454,11 @@ void MacroEngine::Execute(Core::System& system, Engines::Maxwell3D& maxwell3d, u
                         LOG_INFO(HW_GPU, "Native MME DMA read{} start={:#x} source={:#x} count={} words={:08x}",
                                  address == DmaReadFifoed ? " fifoed" : "", method, source, value, fmt::join(words, ","));
                     }
-                    for (u32 i = 0; i < std::min<u32>(value, 0x1000); ++i) {
-                        const u32 word = memory.Read<u32>(source + u64{i} * 4);
+                    const u32 word_count = std::min<u32>(value, 0x1000);
+                    std::array<u32, 0x1000> dma_words;
+                    memory.ReadWordsUnsafe(source, dma_words.data(), word_count);
+                    for (u32 i = 0; i < word_count; ++i) {
+                        const u32 word = dma_words[i];
                         if (address == DmaReadFifoed) {
                             fifo.push_back(word);
                         } else if (ram + i < native_interpreter.active_dram->size()) {

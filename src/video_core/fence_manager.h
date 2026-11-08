@@ -18,6 +18,7 @@
 #include <queue>
 
 #include "common/common_types.h"
+#include "common/logging.h"
 #include "common/settings.h"
 #include "common/thread.h"
 #include "video_core/delayed_destruction_ring.h"
@@ -105,6 +106,7 @@ public:
             }
             pending_operations.emplace_back(std::move(uncommitted_operations));
             uncommitted_operations.clear(); // moved-from: make it empty explicitly
+            uncommitted_operations.reserve(64);
         }
         pending_flushes.push_back(committed_flushes);
         QueueFence(new_fence);
@@ -123,6 +125,13 @@ public:
     }
 
     void SignalSyncPoint(u32 value) {
+        // The id comes from a command list (the 3D engine's sync method, the puller's fence
+        // action). Past the syncpoint table, the increment would walk memory after it as an
+        // action list; command words read wrong carry any id (Splatoon Raiders on Linux).
+        if (value >= Tegra::Host1x::SyncpointManager::NUM_MAX_SYNCPOINTS) {
+            LOG_ERROR(HW_GPU, "Signal of syncpoint {} past the table, ignored", value);
+            return;
+        }
         syncpoint_manager.IncrementGuest(value);
         std::function<void()> func([this, value] { syncpoint_manager.IncrementHost(value); });
         SignalFence(std::move(func));
@@ -144,6 +153,9 @@ public:
                 wait_cv.notify_all();
             });
             SignalFence(std::move(func));
+            // With delayed fence operations the callback waits for this fence's tick, whose
+            // submission may be deferred to the waiting thread itself (the GPU split's back).
+            SubmitDeferred();
             std::unique_lock lk(wait_mutex);
             wait_cv.wait(
                 lk, [&wait_finished] { return wait_finished.load(std::memory_order_relaxed); });
@@ -179,6 +191,8 @@ protected:
     virtual bool IsFenceSignaled(TFence& fence) const = 0;
     /// Waits until a fence has been signalled by the host GPU.
     virtual void WaitFence(TFence& fence) = 0;
+    /// Submits command work whose submission was deferred (Vulkan: Scheduler::DeferFlush).
+    virtual void SubmitDeferred() {}
 
     VideoCore::RasterizerInterface& rasterizer;
     Tegra::GPU& gpu;
@@ -230,7 +244,7 @@ private:
         }();
         struct Released {
             TFence fence;
-            std::deque<std::function<void()>> operations;
+            OperationList operations;
             u8 flushes;
         };
         std::vector<Released> batch;
@@ -374,8 +388,12 @@ private:
     }
 
     std::queue<TFence> fences;
-    std::deque<std::function<void()>> uncommitted_operations;
-    std::deque<std::deque<std::function<void()>>> pending_operations;
+    // LOCAL TEST (Zelda): vectors, not deques. MSVC's deque of std::function holds one element per
+    // block, so every queued operation (one per query report, ~1000 objects a frame in Ocarina's
+    // Kokiri Forest) allocated a block.
+    using OperationList = std::vector<std::function<void()>>;
+    OperationList uncommitted_operations;
+    std::deque<OperationList> pending_operations;
     std::deque<u8> pending_flushes; ///< Per fence: the caches that committed downloads
     u32 skipped_fences{}; ///< Empty fences skipped since the last one made (GPU thread only)
 

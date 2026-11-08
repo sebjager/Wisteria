@@ -7,7 +7,6 @@
 #include <tuple>
 #include <vector>
 #include <optional>
-#include <span>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -31,6 +30,10 @@ class RasterizerInterface {
 public:
     void UpdatePagesCachedCount(DAddr addr, size_t size, s32 delta) {
         ++update_calls;
+        ApplyPagesCachedCount(addr, size, delta);
+    }
+
+    void ApplyPagesCachedCount(DAddr addr, size_t size, s32 delta) {
         calls.emplace_back(addr, size, delta);
         const u64 page_start{addr >> Core::DEVICE_PAGEBITS};
         const u64 page_end{(addr + size + Core::DEVICE_PAGESIZE - 1) >> Core::DEVICE_PAGEBITS};
@@ -46,18 +49,14 @@ public:
     }
 
     void UpdatePagesCachedBatch(std::span<const std::pair<DAddr, size_t>> ranges, s32 delta) {
-        batch_calls.push_back({{ranges.begin(), ranges.end()}, delta});
+        if (ranges.empty()) {
+            return;
+        }
+        ++update_calls;
         for (const auto& [addr, size] : ranges) {
-            UpdatePagesCachedCount(addr, size, delta);
+            ApplyPagesCachedCount(addr, size, delta);
         }
     }
-
-    struct BatchCall {
-        std::vector<std::pair<DAddr, size_t>> ranges;
-        s32 delta;
-        bool operator==(const BatchCall&) const = default;
-    };
-    [[nodiscard]] const std::vector<BatchCall>& BatchCalls() const noexcept { return batch_calls; }
 
     [[nodiscard]] size_t UpdateCalls() const noexcept { return update_calls; }
     [[nodiscard]] const std::vector<std::tuple<DAddr, u64, int>>& UpdateCallsList() const noexcept { return calls; }
@@ -78,7 +77,6 @@ public:
 private:
     ::Common::unordered_map<u64, int> page_table;
     std::vector<std::tuple<DAddr, u64, int>> calls;
-    std::vector<BatchCall> batch_calls;
     size_t update_calls = 0;
 };
 
@@ -569,25 +567,32 @@ TEST_CASE("MemoryTracker: Cached write downloads") {
     REQUIRE(rasterizer.Count() == 0);
 }
 
-TEST_CASE("MemoryTracker: Tracking changes are batched") {
-    using BatchCall = RasterizerInterface::BatchCall;
+TEST_CASE("MemoryTracker: cached writes preserve tracking counts") {
     RasterizerInterface rasterizer;
     std::optional<MemoryTracker> memory_track(rasterizer);
     memory_track->UnmarkRegionAsCpuModified(c, WORD * 2);
-    REQUIRE(rasterizer.BatchCalls().size() == 1);
-    REQUIRE(rasterizer.BatchCalls().back() == BatchCall{{{c, WORD * 2}}, 1});
+    REQUIRE(rasterizer.UpdateCalls() == 1);
+    REQUIRE(rasterizer.UpdateCallsList().size() == 1);
+    REQUIRE(rasterizer.UpdateCallsList().front() == std::tuple{c, WORD * 2, 1});
 
-    memory_track->MarkRegionAsCpuModified(c + PAGE, PAGE * 2);
-    memory_track->MarkRegionAsCpuModified(c + PAGE * 4, PAGE);
-    REQUIRE(rasterizer.Count() == WORD * 2 / PAGE - 3);
-
-    // One upload pass re-tracks both modified runs with a single batched call.
-    int num = 0;
-    memory_track->ForEachUploadRange(c, WORD, [&](u64 offset, u64 size) { ++num; });
-    REQUIRE(num == 2);
-    REQUIRE(rasterizer.BatchCalls().size() == 4);
-    REQUIRE(rasterizer.BatchCalls().back() == BatchCall{{{c + PAGE, PAGE * 2}, {c + PAGE * 4, PAGE}}, 1});
-    REQUIRE(rasterizer.Count() == WORD * 2 / PAGE);
+    memory_track->CachedCpuWrite(c + PAGE, PAGE);
+    memory_track->CachedCpuWrite(c + PAGE * 2, PAGE);
+    memory_track->CachedCpuWrite(c + PAGE * 4, PAGE);
+    REQUIRE(rasterizer.Count() == 125);
+    REQUIRE(rasterizer.Count(c + PAGE) == 0);
+    REQUIRE(rasterizer.Count(c + PAGE * 2) == 0);
+    REQUIRE(rasterizer.Count(c + PAGE * 3) == 1);
+    REQUIRE(rasterizer.Count(c + PAGE * 4) == 0);
+    const auto update_calls = rasterizer.UpdateCalls();
+    memory_track->FlushCachedWrites();
+    REQUIRE(rasterizer.UpdateCalls() == update_calls);
+    REQUIRE(rasterizer.Count() == 125);
+    REQUIRE(memory_track->IsRegionCpuModified(c + PAGE, PAGE));
+    REQUIRE(memory_track->IsRegionCpuModified(c + PAGE * 2, PAGE));
+    REQUIRE_FALSE(memory_track->IsRegionCpuModified(c + PAGE * 3, PAGE));
+    REQUIRE(memory_track->IsRegionCpuModified(c + PAGE * 4, PAGE));
+    memory_track->MarkRegionAsCpuModified(c, WORD * 2);
+    REQUIRE(rasterizer.Count() == 0);
 }
 
 TEST_CASE("DeviceMemoryManager: UpdatePagesCachedBatch basic") {

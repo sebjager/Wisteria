@@ -49,8 +49,10 @@ void ThreadManager::StartThread(VideoCore::RendererBase& renderer, Core::Fronten
     rasterizer = renderer.ReadRasterizer();
     thread = std::jthread([&](std::stop_token stop_token) {
         Common::SetCurrentThreadName("GPU");
+        VideoCommon::GpuSplit::MarkGpuThread();
         Common::SetCurrentThreadPriority(Common::ThreadPriority::Critical);
         Common::SetCurrentThreadToPerformanceCores();
+        Common::PinCurrentThreadToPhysicalCore(0, "GPU");
         system.RegisterHostThread();
 
         auto current_context = context.Acquire();
@@ -99,7 +101,13 @@ void ThreadManager::StartThread(VideoCore::RendererBase& renderer, Core::Fronten
                 } else if (std::holds_alternative<GPUTickCommand>(next.data)) {
                     split.Defer([gpu = &system.GPU()] { gpu->TickWork(); });
                 } else if (auto* run = std::get_if<RunCommand>(&next.data)) {
-                    split.DeferFunction(std::move(run->func));
+                    if (run->before_later_reads) {
+                        // GPU memory maps unmap caches (UnmapMemory downloads): the back's state.
+                        split.DeferFunction(std::move(run->func));
+                        split.Drain();
+                    } else {
+                        split.DeferFunction(std::move(run->func));
+                    }
                 } else if (const auto* flush = std::get_if<FlushRegionCommand>(&next.data)) {
                     split.Defer([rasterizer_ptr, addr = flush->addr, size = flush->size] {
                         rasterizer_ptr->FlushRegion(addr, size);
@@ -155,8 +163,8 @@ void ThreadManager::TickGPU(bool is_async) {
     PushCommand(GPUTickCommand(), false, is_async);
 }
 
-void ThreadManager::Run(std::function<void()>&& func, bool is_async) {
-    PushCommand(RunCommand{std::move(func)}, false, is_async);
+void ThreadManager::Run(std::function<void()>&& func, bool is_async, bool before_later_reads) {
+    PushCommand(RunCommand{std::move(func), before_later_reads}, false, is_async);
 }
 
 void ThreadManager::InvalidateRegion(DAddr addr, u64 size) {

@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <limits>
 #include <optional>
@@ -164,6 +165,8 @@ bool Maxwell3D::IsMethodExecutable(u32 method) {
     case MAXWELL3D_REG_INDEX(vertex_array_instance_first):
     case MAXWELL3D_REG_INDEX(vertex_array_instance_subsequent):
     case MAXWELL3D_REG_INDEX(draw_texture.src_y0):
+    case RootTables::SelectMethod:
+    case RootTables::LoadMethod:
     case MAXWELL3D_REG_INDEX(wait_for_idle):
     case MAXWELL3D_REG_INDEX(shadow_ram_control):
     case MAXWELL3D_REG_INDEX(load_mme.instruction_ptr):
@@ -336,6 +339,12 @@ void Maxwell3D::ConsumeSinkImpl(Core::System& system) {
 }
 
 void Maxwell3D::ProcessDirtyRegisters(u32 method, u32 argument) {
+    // The instances after the first are drawn together once their loop ends, and they must see
+    // the state they were begun with: NVN's draw macros reset the base instance (and its copy in
+    // c[0][0x644]) right after the loop, before the macro returns.
+    if (draw_manager.HasDeferredDraw() && !DrawManager::IsInstanceLoopMethod(method)) [[unlikely]] {
+        draw_manager.DrawDeferred(*this, true);
+    }
     regs.reg_array[method] = argument;
     for (auto const& table : dirty.tables)
         dirty.flags[table[method]] = true;
@@ -346,6 +355,17 @@ void Maxwell3D::ProcessMethodCall(u32 method, u32 argument, u32 nonshadow_argume
         LOG_DEBUG(HW_GPU, "Native GPU surface clear: value={:#x}", argument);
     }
     switch (method) {
+    case RootTables::SelectMethod:
+        root_tables.selected = argument & 7;
+        root_tables.offset = (argument >> 8) & 0xff;
+        return;
+    case RootTables::LoadMethod:
+        if (root_tables.offset < 256 && root_tables.offset % 4 == 0) {
+            root_tables.tables[root_tables.selected][root_tables.offset / 4] = argument;
+            root_tables.loaded = true;
+        }
+        root_tables.offset += 4;
+        return;
     case MAXWELL3D_REG_INDEX(wait_for_idle):
         return rasterizer->WaitForIdle();
     case MAXWELL3D_REG_INDEX(shadow_ram_control):
@@ -444,6 +464,9 @@ void Maxwell3D::TraceFirstMethodWrite(u32 method, u32 argument) {
 }
 
 void Maxwell3D::CallMethod(Core::System& system, u32 method, u32 method_argument, bool is_last_call) {
+    if (front_macros && !VideoCommon::GpuSplit::OnBackThread()) [[unlikely]] {
+        ReleaseFront();
+    }
     // It is an error to write to a register other than the current macro's ARG register before
     // it has finished execution.
     if (executing_macro != 0 && method != executing_macro + 1) {
@@ -499,6 +522,10 @@ void Maxwell3D::DumpRecentWrites(u32 method) {
     }
     LOG_ERROR(HW_GPU, "Write to {:#x} while macro {:#x} collects parameters ({} so far); last writes:",
               method, executing_macro, macro_params.size());
+    if (!record_write_history) {
+        LOG_ERROR(HW_GPU, "Register write history disabled; EDEN_NX2_3D_HISTORY=1 enables it");
+        return;
+    }
     for (size_t i = 0; i < recent_writes.size(); ++i) {
         const auto& w = recent_writes[(recent_write_index + i) % recent_writes.size()];
         if (w.amount != 0) {
@@ -509,12 +536,19 @@ void Maxwell3D::DumpRecentWrites(u32 method) {
 }
 
 void Maxwell3D::CallMultiMethod(Core::System& system, u32 method, const u32* base_start, u32 amount, u32 methods_pending) {
+    if (front_macros && !VideoCommon::GpuSplit::OnBackThread()) [[unlikely]] {
+        ReleaseFront();
+    }
     RecordWrite(method, amount ? base_start[0] : 0, amount, methods_pending);
     // Methods after 0xE00 are special, they're actually triggers for some microcode that was
     // uploaded to the GPU during initialization.
     if (method >= MacroRegistersStart) {
         ProcessMacro(system, method, base_start, amount, amount == methods_pending);
         return;
+    }
+    // As in ProcessDirtyRegisters: the paths below write without it.
+    if (draw_manager.HasDeferredDraw() && !DrawManager::IsInstanceLoopMethod(method)) [[unlikely]] {
+        draw_manager.DrawDeferred(*this, true);
     }
     switch (method) {
     case MAXWELL3D_REG_INDEX(const_buffer.buffer):
@@ -561,7 +595,11 @@ void Maxwell3D::ProcessMacroUpload(u32 data) {
 }
 
 void Maxwell3D::ProcessMacroBind(u32 data) {
-    GetNativeMacroPositions()[regs.load_mme.start_address_ptr++] = data;
+    const auto positions = GetNativeMacroPositions();
+    const u32 index = regs.load_mme.start_address_ptr++;
+    if (index < positions.size()) {
+        positions[index] = data;
+    }
 }
 
 void Maxwell3D::ProcessFirmwareCall4() {
@@ -732,11 +770,24 @@ void Maxwell3D::ProcessCBMultiData(const u32* start_base, u32 amount) {
     ASSERT(buffer_address != 0);
 
     // Don't allow writing past the end of the buffer.
-    ASSERT(regs.const_buffer.offset <= regs.const_buffer.size);
-
-    const GPUVAddr address{buffer_address + regs.const_buffer.offset};
     const size_t copy_size = amount * sizeof(u32);
-    memory_manager.WriteBlockCached(address, start_base, copy_size);
+    const size_t room = regs.const_buffer.offset < regs.const_buffer.size
+                            ? regs.const_buffer.size - regs.const_buffer.offset
+                            : 0;
+    const size_t write_size = std::min(copy_size, room / sizeof(u32) * sizeof(u32));
+    if (write_size != 0) {
+        const GPUVAddr address{buffer_address + regs.const_buffer.offset};
+        memory_manager.WriteBlockCached(address, start_base, write_size);
+    }
+    if (write_size != copy_size) {
+        static std::atomic<bool> warned{};
+        if (!warned.exchange(true, std::memory_order_relaxed)) {
+            LOG_ERROR(HW_GPU,
+                      "Dropping constant buffer words past the end: offset={:#x}, size={:#x}, "
+                      "bytes={:#x}, written={:#x}",
+                      regs.const_buffer.offset, regs.const_buffer.size, copy_size, write_size);
+        }
+    }
 
     // Increment the current buffer position.
     regs.const_buffer.offset += static_cast<u32>(copy_size);
@@ -795,7 +846,6 @@ struct Maxwell3D::FrontState {
     Regs::ShadowRamControl control{};
     u32 executing_macro{};
     std::vector<u32> parameters;
-    std::vector<u32> fifo;
     u64 calls{};
     /// A method the draw manager handles was sent since the back last ran DrawDeferred: only
     /// then can it have a deferred instanced draw to issue at the end of a macro.
@@ -819,6 +869,8 @@ bool FrontHandledOutsideDrawManager(u32 method) {
         return true;
     }
     switch (method) {
+    case Maxwell3D::RootTables::SelectMethod:
+    case Maxwell3D::RootTables::LoadMethod:
     case MAXWELL3D_REG_INDEX(wait_for_idle):
     case MAXWELL3D_REG_INDEX(shadow_ram_control):
     case MAXWELL3D_REG_INDEX(load_mme.instruction_ptr):
@@ -874,6 +926,19 @@ Maxwell3D::FrontState& Maxwell3D::Front(Core::System& system, VideoCommon::GpuSp
         front_macros = true;
     }
     return *front;
+}
+
+// With the split on, engine methods run on its back only: one here on another thread means the
+// split stopped (accuracy settings changed mid-game). Hand the macros back: the front's copy
+// goes stale from now on, and a restart copies the registers again (Front).
+void Maxwell3D::ReleaseFront() {
+    executing_macro = front->executing_macro;
+    macro_params = std::move(front->parameters);
+    std::memcpy(shadow_state.reg_array.data(), front->shadow.data(), sizeof(front->shadow));
+    shadow_state.shadow_ram_control = front->control;
+    front.reset();
+    front_macros = false;
+    LOG_INFO(HW_GPU, "GPU thread split stopped: 3D macros back on the engine");
 }
 
 void Maxwell3D::FrontWrite(VideoCommon::GpuSplit& split, FrontState& fs, u32 method,
@@ -964,6 +1029,14 @@ void Maxwell3D::FrontCallMethod(Core::System& system, VideoCommon::GpuSplit& spl
         return;
     }
     FrontWrite(split, fs, method, argument, is_last_call, false);
+}
+
+void Maxwell3D::FrontWriteRun(Core::System& system, VideoCommon::GpuSplit& split, u32 method,
+                              const u32* words, u32 count, bool ends_method) {
+    auto& fs = Front(system, split);
+    for (u32 i = 0; i < count; ++i) {
+        FrontWrite(split, fs, method + i, words[i], ends_method && i + 1 == count, false);
+    }
 }
 
 void Maxwell3D::FrontCallMultiMethod(Core::System& system, VideoCommon::GpuSplit& split,
@@ -1070,9 +1143,9 @@ void Maxwell3D::FrontRunMacro(Core::System& system, VideoCommon::GpuSplit& split
             engine.native_jit = std::make_shared<TuringMacroJit>();
         }
         engine.native_jit->Prepare(engine.native_code, engine.native_code_generation);
-        fs.fifo.assign(fs.parameters.begin(), fs.parameters.end());
+        const size_t parameter_count = fs.parameters.size();
         const auto result = engine.native_jit->Execute(
-            start, fs.fifo, std::span<u32>{native_data_ram},
+            start, fs.parameters, std::span<u32>{native_data_ram},
             [&fs](u32 address) { return address < Regs::NUM_REGS ? fs.regs[address] : 0U; },
             [&](u32 address, u32 value) {
                 if (address >= MacroRegistersStart) {
@@ -1088,7 +1161,7 @@ void Maxwell3D::FrontRunMacro(Core::System& system, VideoCommon::GpuSplit& split
         if (!result.success) {
             engine.native_execution_failed = true;
             LOG_ERROR(HW_GPU, "Native MME (JIT, split front) failed: start={:#x}, consumed={}/{}, error={}",
-                      start, result.consumed, fs.parameters.size(), result.error);
+                      start, result.consumed, parameter_count, result.error);
         }
     }
     fs.parameters.clear();
@@ -1118,12 +1191,14 @@ void Maxwell3D::FrontDmaRead(VideoCommon::GpuSplit& split, FrontState& fs, u32 m
         VideoCommon::Nx2Profile::Add(VideoCommon::Nx2Profile::Counter::DmaReadBytes, read_bytes);
     }
     if (memory_manager.IsMemoryDirty(source, read_bytes, VideoCommon::CacheType::BufferCache)) {
-        memory_manager.FlushRegion(source, read_bytes, VideoCommon::CacheType::BufferCache);
+        split.Run([memory = &memory_manager, source, read_bytes] {
+            memory->FlushRegion(source, read_bytes, VideoCommon::CacheType::BufferCache);
+        });
     }
     for (u32 i = 0; i < words; ++i) {
         const u32 word = memory_manager.Read<u32>(source + u64{i} * sizeof(u32));
         if (method == 0x158) {
-            fs.fifo.push_back(word);
+            fs.parameters.push_back(word);
         } else if (ram + i < native_data_ram.size()) {
             native_data_ram[ram + i] = word;
         }

@@ -93,7 +93,7 @@ void CpuManager::MultiCoreRunIdleThread(Kernel::KernelCore& kernel) {
     while (true) {
         auto& physical_core = kernel.CurrentPhysicalCore();
         if (!physical_core.IsInterrupted()) {
-            physical_core.Idle();
+            physical_core.Idle(kernel);
         }
         HandleInterrupt(kernel);
     }
@@ -175,6 +175,8 @@ void CpuManager::RunThread(std::stop_token token, std::size_t core) {
     Common::SetCurrentThreadName(name.c_str());
     Common::SetCurrentThreadPriority(Common::ThreadPriority::Critical);
     Common::SetCurrentThreadToPerformanceCores();
+    // Slots 0-2 are the GPU threads (gpu_thread.cpp, gpu_split.cpp, vk_scheduler.cpp).
+    Common::PinCurrentThreadToPhysicalCore(3 + static_cast<u32>(core), name.c_str());
     auto& data = core_data[core];
     data.host_context = Common::Fiber::ThreadToFiber();
 

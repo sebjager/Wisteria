@@ -55,6 +55,15 @@ SdlConfig::SdlConfig(const std::optional<std::string> config_path) {
     SaveSdlValues();
 }
 
+SdlConfig::SdlConfig(const std::string& config_name, const ConfigType config_type)
+    : Config(config_type) {
+    Initialize(config_name);
+    if (config_type != ConfigType::InputProfile) {
+        ReadSdlValues();
+        SaveSdlValues();
+    }
+}
+
 SdlConfig::~SdlConfig() {
     if (global) {
         SdlConfig::SaveAllValues();

@@ -1,0 +1,7 @@
+[
+  {"name": "title4", "path": "C:/switch/fourth switch game/exefs/main", "seconds": 300,
+   "key_script": "50:4,50.5:-4,55:79,55.4:-79,57:4,57.5:-4"},
+  {"name": "title3", "path": "C:/switch/third switch game/exefs/main", "seconds": 300},
+  {"name": "title1", "path": "C:/switch/first switch game/exefs/main", "seconds": 300},
+  {"name": "title1-1.8.0", "path": "C:/switch/first switch game/updates/917504/exefs/main", "seconds": 300}
+]

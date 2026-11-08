@@ -7,8 +7,10 @@
 #pragma once
 
 #include <array>
+#include <bit>
 
 #include <sirit/sirit.h>
+#include "common/container/unordered_map.h"
 #include "common/container/unordered_set.h"
 
 #include "shader_recompiler/backend/bindings.h"
@@ -174,7 +176,7 @@ public:
     [[nodiscard]] Id BitOffset16(const IR::Value& offset);
 
     Id Const(u32 value) {
-        return Constant(U32[1], value);
+        return CachedConstant(u32_constants, U32[1], value, value);
     }
 
     Id Const(u32 element_1, u32 element_2) {
@@ -208,7 +210,19 @@ public:
     }
 
     Id Const(f32 value) {
-        return Constant(F32[1], value);
+        return CachedConstant(f32_constants, F32[1], std::bit_cast<u32>(value), value);
+    }
+
+    /// Sirit deduplicates constants, but by hashing a freshly allocated copy of their words on
+    /// every call; immediates are emitted over and over, so remember the ids of scalar constants.
+    /// Keys are bit patterns, like Sirit's (0.0f and -0.0f stay distinct).
+    template <typename T>
+    Id CachedConstant(::Common::unordered_map<u32, Id>& cache, Id type, u32 bits, T value) {
+        const auto [it, is_new]{cache.try_emplace(bits)};
+        if (is_new) {
+            it->second = Constant(type, value);
+        }
+        return it->second;
     }
 
     const Profile& profile;
@@ -227,6 +241,9 @@ public:
     VectorTypes S32;
     VectorTypes F16;
     VectorTypes F64;
+
+    ::Common::unordered_map<u32, Id> u32_constants;
+    ::Common::unordered_map<u32, Id> f32_constants;
 
     Id true_value{};
     Id false_value{};
@@ -343,6 +360,11 @@ public:
     Id write_global_func_u32{};
     Id write_global_func_u32x2{};
     Id write_global_func_u32x4{};
+    // 32-bit global atomics on untracked addresses, routed to the storage buffer holding them.
+    enum class GlobalAtomic : size_t {
+        IAdd, SMin, UMin, SMax, UMax, Inc, Dec, And, Or, Xor, Exchange, AddF32, Count,
+    };
+    std::array<Id, static_cast<size_t>(GlobalAtomic::Count)> global_atomic_funcs{};
 
     bool need_input_position_indirect{};
     Id input_position{};
@@ -360,8 +382,36 @@ public:
     Id sample_mask{};
     Id frag_depth{};
 
+    std::array<Id, 2> software_matrix_functions{};
     std::vector<Id> interfaces;
     std::vector<std::pair<u32, spv::Op>> opcode_rewrites;
+
+    // Task and mesh programs. Their stage buffer: the task's output region is the task payload
+    // (the mesh stage's input region); the mesh output regions live in workgroup memory until
+    // the epilogue copies them to the outputs. The two mesh instructions Sirit lacks are emitted
+    // as OpStore markers with these operands and replaced after assembly (PatchMeshInstructions).
+    struct MeshLineTarget {
+        Id variable;    ///< arrayed output
+        u32 element;    ///< vector element, or ~0 for a scalar output
+        bool is_float;  ///< bitcast the stage buffer word to F32
+    };
+    Id mesh_payload{};
+    Id mesh_payload_u32{};  ///< pointer type to one payload word
+    Id mesh_attributes{};
+    Id mesh_map{};
+    Id mesh_primitive_count{};
+    Id mesh_shared_u32{};   ///< pointer type to one workgroup word
+    Id mesh_primitive_indices{};
+    Id mesh_point_size{}; ///< PointSize output array of a mesh program, if any
+    MeshInfo mesh_info{};
+    u32 mesh_threads{};
+    u32 mesh_attribute_words{};
+    u32 mesh_map_bytes{};
+    u32 mesh_primitive_base{}; ///< first word of the per-primitive groups
+    std::vector<MeshLineTarget> mesh_vertex_targets;
+    std::vector<MeshLineTarget> mesh_primitive_targets;
+    std::array<Id, 2> mesh_outputs_marker{};
+    std::array<Id, 4> mesh_tasks_marker{};
 
     Id load_const_func_u8{};
     Id load_const_func_u16{};
@@ -394,7 +444,7 @@ private:
     void DefineImages(const Info& info, u32& binding, u32& scaling_index);
     void DefineAttributeMemAccess(const Info& info);
     void DefineWriteStorageCasLoopFunction(const Info& info);
-    void DefineGlobalMemoryFunctions(const Info& info);
+    void DefineGlobalMemoryFunctions(const IR::Program& program);
     void DefineRescalingInput(const Info& info);
     void DefineRescalingInputPushConstant();
     void DefineRescalingInputUniformConstant();
@@ -402,6 +452,7 @@ private:
 
     void DefineInputs(const IR::Program& program);
     void DefineOutputs(const IR::Program& program);
+    void DefineMesh(const IR::Program& program);
 };
 
 } // namespace Shader::Backend::SPIRV

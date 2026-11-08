@@ -18,6 +18,7 @@
 #include <ranges>
 #include "common/scope_exit.h"
 #include "common/settings.h"
+#include "common/settings_recommendations.h"
 #include "core/core_timing.h"
 #include "core/frontend/graphics_context.h"
 #include "video_core/capture.h"
@@ -41,6 +42,9 @@
 #include "video_core/vulkan_common/vulkan_memory_allocator.h"
 #include "video_core/vulkan_common/vulkan_surface.h"
 #include "video_core/vulkan_common/vulkan_wrapper.h"
+#ifdef EGLANTINE_STREAMLINE
+#include "video_core/vulkan_common/streamline.h"
+#endif
 #ifdef __ANDROID__
 #include <jni.h>
 #endif
@@ -130,6 +134,9 @@ try
     , gpu(gpu_)
     , library(OpenLibrary(context.get()))
     , dld()
+#ifdef EGLANTINE_STREAMLINE
+    , streamline_started(Streamline::Start())
+#endif
     // Create raw Vulkan instance first
     , instance(CreateInstance(*library,
                             dld,
@@ -265,6 +272,29 @@ void RendererVulkan::Report() const {
     LOG_INFO(Render_Vulkan, "Device: {}", model_name);
     LOG_INFO(Render_Vulkan, "Vulkan: {}", api_version);
     LOG_INFO(Render_Vulkan, "Available VRAM: {:.2f} GiB", available_vram);
+
+    // Hardware-based recommendations, logged so test runs show what a frontend would offer.
+    namespace Recommendations = Settings::Recommendations;
+    Recommendations::HostHardware hardware{
+        .gpu_name = model_name,
+        .gpu_integrated = device.IsIntegrated(),
+        .gpu_memory = device.GetLargestDeviceLocalHeap(),
+    };
+    Recommendations::DetectHostCpuAndMemory(hardware);
+    const auto recommendations = Recommendations::Recommend(hardware);
+    LOG_INFO(Render_Vulkan, "Host hardware: {}", Recommendations::DescribeHardware(hardware));
+    for (const auto& recommendation : recommendations.settings) {
+        const auto it = Settings::values.linkage.by_key.find(recommendation.setting);
+        const std::string current = it != Settings::values.linkage.by_key.end()
+                                        ? it->second->Canonicalize()
+                                        : std::string{"?"};
+        LOG_INFO(Render_Vulkan, "Recommended setting ({}): {} = {} (now {}), rule {}",
+                 Recommendations::StatusName(recommendation.status), recommendation.setting,
+                 recommendation.value_name, current, recommendation.id);
+    }
+    for (const auto& notice : recommendations.notices) {
+        LOG_INFO(Render_Vulkan, "Hardware notice: {}", notice);
+    }
 }
 
 vk::Buffer RendererVulkan::RenderToBuffer(std::span<const Tegra::FramebufferConfig> framebuffers,

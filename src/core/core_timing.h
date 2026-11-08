@@ -21,6 +21,10 @@
 #include "common/thread.h"
 #include "common/cpu_features.h"
 
+#ifdef _WIN32
+#include "common/windows/high_resolution_event.h"
+#endif
+
 namespace Core::Timing {
 
 /// A callback that may be scheduled for a particular core timing event.
@@ -153,7 +157,11 @@ public:
     /// Cycle timing
     u64 cpu_ticks{};
     s64 downcount{};
+#ifdef _WIN32
+    Common::Windows::HighResolutionEvent event;
+#else
     Common::Event event{};
+#endif
     Common::Event pause_event{};
     std::function<void()> on_thread_init{};
     std::jthread timer_thread;

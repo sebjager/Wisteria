@@ -172,12 +172,18 @@ struct Values {
     QStringList recent_files;
     Setting<std::string> language{linkage, {}, "language", Category::Paths};
 
+    // Optional key that enables the SteamGridDB icon fallback
+    Setting<std::string> steamgriddb_api_key{linkage, {}, "steamgriddb_api_key", Category::Ui};
+
     std::string theme;
 
     // Shortcut name <Shortcut, context>
     std::vector<Shortcut> shortcuts;
 
     Setting<u32> callout_flags{linkage, 0, "calloutFlags", Category::Ui};
+    // Settings::Recommendations::RulesVersion the recommended settings were last offered for.
+    Setting<u32> recommended_settings_version{linkage, 0, "recommendedSettingsVersion",
+                                              Category::Ui};
 
     // multiplayer settings
     Setting<std::string> multiplayer_nickname{linkage, {}, "nickname", Category::Multiplayer};
@@ -244,7 +250,7 @@ void SaveWindowState();
 void RestoreWindowState(std::unique_ptr<QtConfig>& qtConfig);
 
 // sync with uisettings.cpp
-extern const std::array<Shortcut, 33> default_hotkeys;
+extern const std::array<Shortcut, 32> default_hotkeys;
 
 } // namespace UISettings
 

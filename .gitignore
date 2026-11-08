@@ -67,3 +67,18 @@ vulkansdk*.exe
 
 # Build-time generated external sources
 externals/generated
+
+# Console keys, firmware and game dumps must never be committed
+*.keys
+*.nsp
+*.nsz
+*.xci
+*.xcz
+*.nca
+*.ncz
+*.nso
+*.nro
+*.kip
+*.tik
+/exefs/
+/romfs/
