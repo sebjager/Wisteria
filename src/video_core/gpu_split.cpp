@@ -118,14 +118,16 @@ void GpuSplit::MaybeStart(Core::System& system_) {
         return;
     }
     // The front reads command lists straight from guest memory; a read that flushes the caches
-    // first (safe DMA, accurate GPU) would touch back-owned state. With EDEN_NX2_SPLIT_HIGH (on
-    // unless =0) those settings keep the split: the front reads command lists as with the split
+    // first (safe DMA, accurate GPU) would touch back-owned state. With EDEN_NX2_SPLIT_HIGH=1
+    // those settings keep the split: the front reads command lists as with the split
     // at any accuracy, flushing GPU-written command pages on the back (FlushGpuWrittenCommands).
     // The settings can change mid-game: hand the engines back to the front (and start again when
     // they allow it).
     static const bool split_high = [] {
         const char* value = std::getenv("EDEN_NX2_SPLIT_HIGH");
-        return value == nullptr || value[0] != '0';
+        // Off by default until a verify run (EDEN_NX2_SPLIT_HIGH_VERIFY=1) has confirmed its
+        // check count; MKW at High + BC3 was 28.0 ms with it against 37.5 ms without.
+        return value != nullptr && value[0] == '1';
     }();
     const bool safe_reads = Settings::IsDMALevelDefault() ? Settings::IsGPULevelHigh()
                                                           : Settings::IsDMALevelSafe();
