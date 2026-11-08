@@ -24,4 +24,4 @@ workflow check the first three for every commit on top of `nx2`.
 6. No Nintendo logos or artwork. Name third-party technology honestly (for example, do not call a
    feature FSR 3 if it does not use AMD FSR 3).
 7. Every binary release ships `LICENSE.txt` and `LICENSES/` and links the exact source commit
-   (see `.github/workflows/release-binaries.yml`).
+   (see `.github/workflows/build-*.yml` and `tools/ci/release-notes.sh`).

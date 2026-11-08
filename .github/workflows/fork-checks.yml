@@ -1,0 +1,142 @@
+# SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: fork-checks
+
+# Builds and tests every pull request and every push to a work branch. Publishing binaries stays
+# in ci.yml (with build-*.yml and release.yml), which only publishes from nx2 or by hand.
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - nx2
+      - nx2-experimental
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Keys, firmware and game files must never enter the repository or a build. This fails on any
+  # tracked file that looks like one, before the slow build starts.
+  content-check:
+    name: No keys, firmware or games
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Look for forbidden files
+        shell: bash
+        run: |
+          set -euo pipefail
+          pattern='(^|/)(prod|title|dev)\.keys$|\.(keys|nsp|nsz|xci|xcz|nca|ncz|tik|bfttf|bfsar)$|(^|/)(nand|sysdata|firmware)/'
+          found=$(git ls-files | grep -iE "$pattern" || true)
+          if [ -n "$found" ]; then
+            echo "::error::Files that look like keys, firmware or game dumps are tracked:"
+            echo "$found"
+            exit 1
+          fi
+          # Switch key files are lines of "name = 32+ hex digits".
+          keylike=$(git grep -lIE '^[a-z_]+_key(_[0-9a-f]{2})?[[:space:]]*=[[:space:]]*[0-9a-fA-F]{32,}' -- . || true)
+          if [ -n "$keylike" ]; then
+            echo "::error::Files with key-file contents are tracked:"
+            echo "$keylike"
+            exit 1
+          fi
+          echo "No forbidden files found."
+
+  windows:
+    name: Windows build and tests
+    needs: content-check
+    runs-on: windows-2022
+    env:
+      SCCACHE_DIR: ${{ github.workspace }}/.sccache
+      SCCACHE_CACHE_SIZE: 1500M
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install sccache
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'sccache.zip'
+          Invoke-WebRequest -OutFile $zip https://github.com/mozilla/sccache/releases/download/v0.19.0/sccache-v0.19.0-x86_64-pc-windows-msvc.zip
+          Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'sccache')
+          $bin = (Get-ChildItem -Recurse -Filter sccache.exe (Join-Path $env:RUNNER_TEMP 'sccache')).DirectoryName
+          $bin | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: ./tools/windows/install-vulkan-sdk.ps1
+
+      - name: Cache CPM downloads
+        uses: actions/cache@v4
+        with:
+          path: .cache/cpm
+          key: cpm-ci-${{ runner.os }}-${{ hashFiles('cpmfile.json', 'CMakeLists.txt', 'src/**/CMakeLists.txt') }}
+          restore-keys: |
+            cpm-ci-${{ runner.os }}-
+
+      - name: Cache compiler objects
+        uses: actions/cache@v4
+        with:
+          path: .sccache
+          key: objects-ci-windows-${{ github.sha }}
+          restore-keys: |
+            objects-ci-windows-
+
+      # Same configuration as the local build in NX2_NOTES.md (RelWithDebInfo, eden-cli without Qt),
+      # with the unit tests turned on. sccache cannot cache /Zi (a PDB shared between compiler
+      # processes), so debug info is embedded in each object with /Z7 instead.
+      - name: Configure
+        shell: bash
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_INTERMEDIATE_DIR_STRATEGY=SHORT
+          -DENABLE_QT=OFF
+          -DYUZU_CMD=ON
+          -DYUZU_TESTS=ON
+          -DENABLE_WEB_SERVICE=OFF
+          -DYUZU_ROOM=OFF
+          -DYUZU_ROOM_STANDALONE=OFF
+          -DENABLE_WERROR=OFF
+          -DENABLE_UPDATE_CHECKER=OFF
+          -DUSE_DISCORD_PRESENCE=OFF
+          -DYUZU_USE_BUNDLED_SDL3=ON
+          -DCMAKE_C_COMPILER_LAUNCHER=sccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          -DCMAKE_POLICY_DEFAULT_CMP0141=NEW
+          -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+
+      - name: Build
+        shell: bash
+        run: |
+          cmake --build build --target yuzu-cmd tests --parallel
+          sccache --show-stats
+          test -f build/bin/eden-cli.exe
+
+      # Bundled dependencies such as zlib register their own CTest tests, which need a system
+      # install to configure; only Eglantine's own test program is run.
+      - name: Run tests
+        shell: bash
+        run: ctest --test-dir build --output-on-failure --timeout 600 -R '^tests$'
+
+      # Only the program itself is uploaded: no user/ folder, config, keys or firmware.
+      - name: Upload eden-cli
+        uses: actions/upload-artifact@v4
+        with:
+          name: eden-cli-windows-${{ github.sha }}
+          path: |
+            build/bin/eden-cli.exe
+            build/bin/*.dll
+          if-no-files-found: error
+          retention-days: 7

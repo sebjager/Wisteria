@@ -1,142 +1,201 @@
-# SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
-# SPDX-License-Identifier: GPL-3.0-or-later
-
 name: ci
 
-# Builds and tests every pull request and every push to a work branch. Publishing binaries stays
-# in release-binaries.yml, which only runs on nx2 and nx2-experimental.
+run-name: >-
+  ci (${{ github.event_name }}${{ github.event_name == 'pull_request' && format(' #{0}', github.event.pull_request.number) || '' }})
+
+# Entry point of every build. It decides what the run is (daily / rc / stable / branch), then calls
+# one reusable workflow per OS and a final one that publishes the GitHub release.
+#
+#   push to nx2 touching VERSION   stable or rc release, aborted when that tag already exists
+#   schedule                       daily build of nx2, aborted when nothing changed since the last one
+#   workflow_dispatch              branch build of the chosen ref (or a forced daily, from nx2)
+#   pull_request + ci:build label  branch build of a same-repo PR, rebuilt on each push
 on:
-  pull_request:
   push:
-    branches-ignore:
+    branches:
       - nx2
-      - nx2-experimental
+    paths:
+      - VERSION
+      - CHANGELOG.md
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
+    inputs:
+      kind:
+        description: What to build (daily is only allowed from nx2)
+        type: choice
+        options: [branch, daily]
+        default: branch
+      platforms:
+        description: Which OS builds to run
+        type: choice
+        options: [all, linux, windows, macos]
+        default: all
+      pgo:
+        description: Also build the PGO variants
+        type: choice
+        options: [none, both]
+        default: none
+      publish:
+        description: Publish the binaries as a GitHub pre-release (otherwise only workflow artifacts)
+        type: boolean
+        default: true
+  pull_request:
+    types: [labeled, synchronize, reopened]
 
 permissions:
   contents: read
 
+# A running release or daily build is never cancelled: it finishes and publishes, and one newer run
+# queues behind it. Branch builds are rolling, so a newer push replaces the one in progress.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Manual and scheduled daily builds share a group; PR and manual branch builds share a group
+  # for the source branch so they cannot race while replacing the same rolling release.
+  group: ci-${{ (github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name != github.repository || (github.event.action == 'labeled' && github.event.label.name != 'ci:build'))) && format('ignored-{0}', github.run_id) || (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.kind == 'daily')) && 'daily-nx2' || (github.event_name == 'pull_request' && format('branch-{0}', github.event.pull_request.head.ref)) || (github.event_name == 'workflow_dispatch' && format('branch-{0}', github.ref_name)) || format('release-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.kind != 'daily') }}
 
 jobs:
-  # Keys, firmware and game files must never enter the repository or a build. This fails on any
-  # tracked file that looks like one, before the slow build starts.
-  content-check:
-    name: No keys, firmware or games
+  prepare:
+    name: Prepare scheme
+    # Forks don't publish unattended daily builds; they release by hand (workflow_dispatch) or
+    # through a VERSION bump.
+    if: >-
+      (github.event_name != 'schedule' || github.repository == 'Djihads80/Eglantine') && (
+      github.event_name != 'pull_request' || (
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        contains(github.event.pull_request.labels.*.name, 'ci:build') &&
+        (github.event.action != 'labeled' || github.event.label.name == 'ci:build')
+      ))
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      kind: ${{ steps.scheme.outputs.kind }}
+      tag: ${{ steps.scheme.outputs.tag }}
+      title: ${{ steps.scheme.outputs.title }}
+      version: ${{ steps.scheme.outputs.version }}
+      refspec: ${{ steps.scheme.outputs.refspec }}
+      sha: ${{ steps.scheme.outputs.sha }}
+      skip: ${{ steps.scheme.outputs.skip }}
+      prerelease: ${{ steps.scheme.outputs.prerelease }}
+      nightly: ${{ steps.scheme.outputs.nightly }}
+      publish: ${{ steps.scheme.outputs.publish }}
+      prev_tag: ${{ steps.scheme.outputs.prev_tag }}
+      branch: ${{ steps.scheme.outputs.branch }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
+      # Run the scheme helper from the trusted default branch. The target commit is fetched as
+      # git data only; PR code must not control outputs that feed the write-enabled release job.
+      - name: Check out trusted CI scripts
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
 
-      - name: Look for forbidden files
+      - name: Resolve build commit
+        id: target
         shell: bash
+        env:
+          TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          pattern='(^|/)(prod|title|dev)\.keys$|\.(keys|nsp|nsz|xci|xcz|nca|ncz|tik|bfttf|bfsar)$|(^|/)(nand|sysdata|firmware)/'
-          found=$(git ls-files | grep -iE "$pattern" || true)
-          if [ -n "$found" ]; then
-            echo "::error::Files that look like keys, firmware or game dumps are tracked:"
-            echo "$found"
-            exit 1
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            git fetch --no-tags origin nx2:refs/remotes/origin/nx2
+            sha=$(git rev-parse refs/remotes/origin/nx2)
+          else
+            git fetch --no-tags origin "$TARGET_SHA"
+            sha="$TARGET_SHA"
           fi
-          # Switch key files are lines of "name = 32+ hex digits".
-          keylike=$(git grep -lIE '^[a-z_]+_key(_[0-9a-f]{2})?[[:space:]]*=[[:space:]]*[0-9a-fA-F]{32,}' -- . || true)
-          if [ -n "$keylike" ]; then
-            echo "::error::Files with key-file contents are tracked:"
-            echo "$keylike"
-            exit 1
+          git cat-file -e "$sha^{commit}"
+          # The VERSION file belongs to the source commit for a version-triggered push.
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            git show "$sha:VERSION" > VERSION
+            git show "$sha:CHANGELOG.md" > CHANGELOG.md
           fi
-          echo "No forbidden files found."
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare scheme
+        id: scheme
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_KIND: ${{ inputs.kind }}
+          INPUT_PUBLISH: ${{ inputs.publish }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BUILD_SHA: ${{ steps.target.outputs.sha }}
+        run: bash tools/ci/prepare.sh
+
+  linux:
+    name: Linux
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.skip != 'true' &&
+      (inputs.platforms == '' || inputs.platforms == 'all' || inputs.platforms == 'linux')
+    uses: ./.github/workflows/build-linux.yml
+    with:
+      sha: ${{ needs.prepare.outputs.sha }}
+      version: ${{ needs.prepare.outputs.version }}
+      refspec: ${{ needs.prepare.outputs.refspec }}
+      tag: ${{ needs.prepare.outputs.tag }}
+      release: ${{ needs.prepare.outputs.kind == 'stable' || needs.prepare.outputs.kind == 'rc' }}
+      nightly: ${{ needs.prepare.outputs.nightly == 'true' }}
+      pgo: ${{ inputs.pgo || (needs.prepare.outputs.kind == 'branch' && 'none' || 'both') }}
 
   windows:
-    name: Windows build and tests
-    needs: content-check
-    runs-on: windows-2022
-    env:
-      SCCACHE_DIR: ${{ github.workspace }}/.sccache
-      SCCACHE_CACHE_SIZE: 1500M
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
+    name: Windows
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.skip != 'true' &&
+      (inputs.platforms == '' || inputs.platforms == 'all' || inputs.platforms == 'windows')
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      sha: ${{ needs.prepare.outputs.sha }}
+      version: ${{ needs.prepare.outputs.version }}
+      refspec: ${{ needs.prepare.outputs.refspec }}
+      tag: ${{ needs.prepare.outputs.tag }}
+      release: ${{ needs.prepare.outputs.kind == 'stable' || needs.prepare.outputs.kind == 'rc' }}
+      nightly: ${{ needs.prepare.outputs.nightly == 'true' }}
+      pgo: ${{ inputs.pgo || (needs.prepare.outputs.kind == 'branch' && 'none' || 'both') }}
 
-      - name: Set up MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+  macos:
+    name: macOS
+    needs: prepare
+    if: >-
+      needs.prepare.outputs.skip != 'true' &&
+      (inputs.platforms == '' || inputs.platforms == 'all' || inputs.platforms == 'macos')
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      sha: ${{ needs.prepare.outputs.sha }}
+      version: ${{ needs.prepare.outputs.version }}
+      refspec: ${{ needs.prepare.outputs.refspec }}
+      tag: ${{ needs.prepare.outputs.tag }}
+      release: ${{ needs.prepare.outputs.kind == 'stable' || needs.prepare.outputs.kind == 'rc' }}
+      nightly: ${{ needs.prepare.outputs.nightly == 'true' }}
+      runner: ${{ vars.MACOS_RUNNER || 'macos-15' }}
 
-      - name: Install sccache
-        shell: pwsh
-        run: |
-          $zip = Join-Path $env:RUNNER_TEMP 'sccache.zip'
-          Invoke-WebRequest -OutFile $zip https://github.com/mozilla/sccache/releases/download/v0.19.0/sccache-v0.19.0-x86_64-pc-windows-msvc.zip
-          Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'sccache')
-          $bin = (Get-ChildItem -Recurse -Filter sccache.exe (Join-Path $env:RUNNER_TEMP 'sccache')).DirectoryName
-          $bin | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-
-      - name: Install Vulkan SDK
-        shell: pwsh
-        run: ./tools/windows/install-vulkan-sdk.ps1
-
-      - name: Cache CPM downloads
-        uses: actions/cache@v4
-        with:
-          path: .cache/cpm
-          key: cpm-ci-${{ runner.os }}-${{ hashFiles('cpmfile.json', 'CMakeLists.txt', 'src/**/CMakeLists.txt') }}
-          restore-keys: |
-            cpm-ci-${{ runner.os }}-
-
-      - name: Cache compiler objects
-        uses: actions/cache@v4
-        with:
-          path: .sccache
-          key: objects-ci-windows-${{ github.sha }}
-          restore-keys: |
-            objects-ci-windows-
-
-      # Same configuration as the local build in NX2_NOTES.md (RelWithDebInfo, eden-cli without Qt),
-      # with the unit tests turned on. sccache cannot cache /Zi (a PDB shared between compiler
-      # processes), so debug info is embedded in each object with /Z7 instead.
-      - name: Configure
-        shell: bash
-        run: >-
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=RelWithDebInfo
-          -DCMAKE_INTERMEDIATE_DIR_STRATEGY=SHORT
-          -DENABLE_QT=OFF
-          -DYUZU_CMD=ON
-          -DYUZU_TESTS=ON
-          -DENABLE_WEB_SERVICE=OFF
-          -DYUZU_ROOM=OFF
-          -DYUZU_ROOM_STANDALONE=OFF
-          -DENABLE_WERROR=OFF
-          -DENABLE_UPDATE_CHECKER=OFF
-          -DUSE_DISCORD_PRESENCE=OFF
-          -DYUZU_USE_BUNDLED_SDL3=ON
-          -DCMAKE_C_COMPILER_LAUNCHER=sccache
-          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-          -DCMAKE_POLICY_DEFAULT_CMP0141=NEW
-          -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
-
-      - name: Build
-        shell: bash
-        run: |
-          cmake --build build --target yuzu-cmd tests --parallel
-          sccache --show-stats
-          test -f build/bin/eden-cli.exe
-
-      # Bundled dependencies such as zlib register their own CTest tests, which need a system
-      # install to configure; only Eglantine's own test program is run.
-      - name: Run tests
-        shell: bash
-        run: ctest --test-dir build --output-on-failure --timeout 600 -R '^tests$'
-
-      # Only the program itself is uploaded: no user/ folder, config, keys or firmware.
-      - name: Upload eden-cli
-        uses: actions/upload-artifact@v4
-        with:
-          name: eden-cli-windows-${{ github.sha }}
-          path: |
-            build/bin/eden-cli.exe
-            build/bin/*.dll
-          if-no-files-found: error
-          retention-days: 7
+  # Publishes only when every OS that ran succeeded (skipped OSes don't count).
+  release:
+    name: Publish release
+    needs: [prepare, linux, windows, macos]
+    if: >-
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.prepare.outputs.skip != 'true' &&
+      needs.prepare.outputs.publish == 'true' &&
+      !contains(needs.*.result, 'failure') &&
+      !contains(needs.*.result, 'cancelled')
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    secrets:
+      DISCORD_WEBHOOK_URL: ${{ github.event_name != 'pull_request' && secrets.DISCORD_WEBHOOK_URL || '' }}
+    with:
+      kind: ${{ needs.prepare.outputs.kind }}
+      tag: ${{ needs.prepare.outputs.tag }}
+      title: ${{ needs.prepare.outputs.title }}
+      prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+      sha: ${{ needs.prepare.outputs.sha }}
+      prev_tag: ${{ needs.prepare.outputs.prev_tag }}
+      branch: ${{ needs.prepare.outputs.branch }}
+      macos_runner: ${{ vars.MACOS_RUNNER || 'macos-15' }}
