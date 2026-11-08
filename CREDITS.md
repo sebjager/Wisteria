@@ -22,6 +22,8 @@ author, and its commit message names where it came from (`cherry picked from`, `
 | Upstream branch `fix/missing-mkw-effects` | kraibse | HSETP2 constant-buffer form (Mario Kart World's grass) |
 | [zortos293/Lichii](https://github.com/zortos293/Lichii) | Thibaut LÉAUX, Zortos, ProphetWild, mstampfli, atk3001, William (menorziin), Paulius, Kaj, janvitos, Felix (Frysix) | Fewer needless cache invalidations, whole-block invalidation and early query walk exit, page table walk reuse, larger texture cache budget on big cards, debug statistics only on request, keep unused disk-cache pipelines, growing descriptor storage, dynarmic code space fix, texture invalidation fix, Windows fastmem retry |
 | Upstream branch `perf/nx2-gpu-split-astc-experimental` | Djihads80 | GPU split and ASTC batching |
+| [SmileyTatsu/Eglantine](https://github.com/SmileyTatsu/Eglantine) | SmileyTatsu | Cheaper ASTC decode and upload, Mario Kart World dynamic frame rate fix |
+| [justr4mzi/hortensia](https://github.com/justr4mzi/hortensia) | zortos293 | Buffer usage masks for empty and partial blocks |
 
 Forks that were looked at, and why commits were or were not taken, are tracked outside the
 repository in the project's fork-scan reports.
