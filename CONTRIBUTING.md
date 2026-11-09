@@ -1,5 +1,11 @@
 # Contributing
 
+> [!NOTE]
+> This is the contributing guide of upstream Eglantine. For this fork (sebjager/Wisteria), open
+> issues and pull requests in [sebjager/Wisteria](https://github.com/sebjager/Wisteria); code
+> taken from other forks keeps its author and names its source (see [CREDITS.md](./CREDITS.md) and
+> [docs/policies/Legal.md](./docs/policies/Legal.md)).
+
 Eglantine has lots of different ways that you can contribute to its efforts, even without knowing how to write code:
 
 - Join our [Discord](https://discord.gg/XkS5NVPTUY) community

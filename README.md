@@ -9,15 +9,31 @@
 
 <h1 align="center">
   <br>
-  <a href="https://git.eden-emu.dev/eden-emu/eden"><img src="https://github.com/user-attachments/assets/35031845-4bfa-4916-8bf5-bc3bce67d5e2" alt="Eglantine" width="200"></a>
   <br>
-  <b>Eglantine</b>
+  <b>Wisteria</b>
   <br>
 </h1>
 
-<h4 align="center"><b>Eglantine</b> is a free and opensource (FOSS) Switch 2 emulator, derived from Eden, Yuzu and Sudachi - started by developer Camille LaVey.
+<h4 align="center"><b>Wisteria</b> is a fork of <b>Eglantine</b>, a free and opensource (FOSS) Switch 2 emulator derived from Eden, Yuzu and Sudachi - started by developer Camille LaVey.
 It's written in C++ with portability in mind, with builds for Windows, Linux and macOS
 </h4>
+
+
+> [!NOTE]
+> **This is an unofficial fork:** Wisteria ([sebjager/Wisteria](https://github.com/sebjager/Wisteria)) is a
+> modified version of [Eglantine](https://github.com/Eglantine-Community/Eglantine) (formerly
+> Djihads80/Eglantine), which derives from Eden, yuzu and Sudachi. It is not made or endorsed by
+> the Eglantine developers, and it has no ties to Nintendo. Please report problems with this fork
+> here, not upstream or on the Eglantine Discord. The program and its files are still named
+> `eglantine` for now.
+>
+> **What changed:** this fork adds game profiles, hardware-based recommended settings, performance
+> work and commits taken from other Eglantine forks. Every change is listed in
+> [CHANGELOG.md](./CHANGELOG.md) and in the git history; code from other forks keeps its original
+> authors and is listed in [CREDITS.md](./CREDITS.md).
+>
+> The emulator contains no keys, firmware or games. You must dump them yourself from a console you
+> own; this repository does not help you get them in any other way.
 
 <p align="center">
     </a>
@@ -61,24 +77,14 @@ For information on provided development tooling, see the [Tools directory](./too
 
 ## Download
 
-You can download the latest releases from [here](https://github.com/Djihads80/Eglantine/releases).
+Builds of this fork are on its [releases page](https://github.com/sebjager/Wisteria/releases). Each release names the exact source commit it was built from; its source code is in this repository at that tag. Upstream Eglantine builds are [here](https://github.com/Eglantine-Community/Eglantine/releases).
 
 ## Support
 
 We currently do not take in any donations for the time being
 
-If you would prefer to support us in a different way, please join our [Discord](https://discord.gg/XkS5NVPTUY)
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=djihads80%2Feglantine&type=date&legend=bottom-right">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=djihads80/eglantine&type=date&theme=dark&legend=bottom-right" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=djihads80/eglantine&type=date&legend=bottom-right" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=djihads80/eglantine&type=date&legend=bottom-right" />
- </picture>
-</a>
+The Discord above belongs to upstream Eglantine. For problems with this fork, open an [issue in this repository](https://github.com/sebjager/Wisteria/issues).
 
 ## License
 
-Eglantine is licensed under the GPLv3 (or any later version). Refer to the [LICENSE.txt](https://github.com/Djihads80/Eglantine/blob/nx2/LICENSE.txt) file.
+Eglantine is licensed under the GPLv3 (or any later version). Refer to the [LICENSE.txt](./LICENSE.txt) file; third-party parts carry their own licences, listed in [LICENSES](./LICENSES).

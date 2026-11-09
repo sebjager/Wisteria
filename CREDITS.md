@@ -5,7 +5,7 @@ SPDX-License-Identifier: GPL-3.0-or-later
 
 # Credits
 
-This fork (sebjager/Eglantine) builds on
+This fork (sebjager/Wisteria) builds on
 [Eglantine](https://github.com/Eglantine-Community/Eglantine) (formerly Djihads80/Eglantine),
 which builds on [Eden](https://git.eden-emu.dev/eden-emu/eden) and yuzu. All of it is GPL-3.0;
 see `LICENSE.txt` and `LICENSES/`.
