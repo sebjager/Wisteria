@@ -6,7 +6,7 @@ New entries go under `## [Unreleased]`; `tools/ci/bump-version.sh` turns them in
 
 ## [Unreleased]
 
-## [0.1.1]
+## [0.1.1] - 2026-11-08
 
 First release of the Wisteria fork (sebjager/Wisteria): upstream Eglantine nx2 at `74db237124`
 (2026-11-08) plus this fork's own work and commits taken from other forks (see `CREDITS.md`).
