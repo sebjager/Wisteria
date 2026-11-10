@@ -7,6 +7,7 @@
 #pragma once
 
 #include <climits>
+#include <deque>
 #include <vector>
 
 #include "common/common_types.h"
@@ -27,6 +28,7 @@ struct StagingBufferRef {
     MemoryUsage usage;
     u32 log2_level;
     u64 index;
+    u32 slot{};
 };
 
 class StagingBufferPool {
@@ -59,6 +61,7 @@ private:
         MemoryUsage usage;
         u32 log2_level;
         u64 index;
+        u32 slot{};
         u64 tick = 0;
         bool deferred{};
 
@@ -71,14 +74,18 @@ private:
                 .usage = usage,
                 .log2_level = log2_level,
                 .index = index,
+                .slot = slot,
             };
         }
     };
 
     struct StagingBuffers {
+        // A slot keeps its position for the pool's lifetime; a vacant one has no buffer.
         std::vector<StagingBuffer> entries;
-        size_t delete_index = 0;
-        size_t iterate_index = 0;
+        std::vector<u32> vacant;
+        // Slots whose tick is final, oldest tick first: when the front is still in use, so is
+        // every other one. Deferred buffers join when they are freed.
+        std::deque<u32> released;
     };
 
     static constexpr size_t NUM_LEVELS = sizeof(size_t) * CHAR_BIT;
@@ -94,6 +101,8 @@ private:
                                                          bool deferred);
 
     StagingBufferRef CreateStagingBuffer(size_t size, MemoryUsage usage, bool deferred);
+
+    void Acquire(StagingBuffers& level, StagingBuffer& entry, bool deferred);
 
     StagingBuffersCache& GetCache(MemoryUsage usage);
 
