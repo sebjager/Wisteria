@@ -5,8 +5,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdlib>
+#include <cstring>
 #include <cstdio>
 #include <vector>
 
@@ -57,6 +59,37 @@ bool WritesMemory(Engines::EngineInterface* engine, Engines::EngineTypes type, u
     }
     return false;
 }
+
+// EDEN_NX2_SPLIT_HIGH_VERIFY (DmaPusher::VerifySplitRead).
+enum VerifySource : u32 { SubmitCopy, ListCopy, GuestMemory, VerifySourceCount };
+constexpr std::array<const char*, VerifySourceCount> verify_source_names{
+    "submit-time copy", "GPU-written list copy", "guest memory"};
+std::array<std::atomic<u64>, VerifySourceCount> verify_checks{};
+std::array<std::atomic<u64>, VerifySourceCount> verify_mismatches{};
+std::atomic<u64> verify_total{};
+std::atomic<u64> verify_reported{};
+
+bool VerifySplitReads() {
+    static const bool verify = std::getenv("EDEN_NX2_SPLIT_HIGH_VERIFY") != nullptr;
+    return verify;
+}
+
+void ReportSplitVerify() {
+    const u64 total = verify_total.load();
+    if (verify_reported.exchange(total) == total) {
+        return;
+    }
+    u64 differed = 0;
+    for (const auto& count : verify_mismatches) {
+        differed += count.load();
+    }
+    LOG_INFO(HW_GPU, "Split at High verify: {} checks, {} differed", total, differed);
+    for (u32 source = 0; source < VerifySourceCount; ++source) {
+        LOG_INFO(HW_GPU, "Split at High verify ({}): {} checks, {} differed",
+                 verify_source_names[source], verify_checks[source].load(),
+                 verify_mismatches[source].load());
+    }
+}
 } // Anonymous namespace
 
 DmaPusher::DmaPusher(Core::System& system_, MemoryManager& memory_manager_, Control::ChannelState& channel_state_)
@@ -67,7 +100,11 @@ DmaPusher::DmaPusher(Core::System& system_, MemoryManager& memory_manager_, Cont
     , synced{false}
 {}
 
-DmaPusher::~DmaPusher() = default;
+DmaPusher::~DmaPusher() {
+    if (VerifySplitReads()) {
+        ReportSplitVerify();
+    }
+}
 
 void DmaPusher::DispatchCalls() {
     // The sub-index is kept: a channel suspended on a semaphore resumes inside its command list.
@@ -216,15 +253,21 @@ bool DmaPusher::Step() {
         // safe read below would flush (with the split, the front can't tell: it reads memory
         // unflushed anyway). Entries on pages the GPU writes (culling) always take the flushing
         // read: their words at submit time are an older frame's.
-        const bool submitted = command_resume_offset == 0 &&
-                               dma_pushbuffer_subindex < command_list.submitted_offsets.size() &&
-                               (command_list.snapshot_suspensions & 1) == 0 &&
-                               command_list.snapshot_suspensions ==
-                                   suspensions.load(std::memory_order_acquire) &&
-                               !std::ranges::binary_search(
-                                   command_list.deferred_entries,
-                                   static_cast<u32>(dma_pushbuffer_subindex)) &&
-                               !gpu_written &&
+        const bool has_copy = command_resume_offset == 0 &&
+                              dma_pushbuffer_subindex < command_list.submitted_offsets.size() &&
+                              (command_list.snapshot_suspensions & 1) == 0 &&
+                              command_list.snapshot_suspensions ==
+                                  suspensions.load(std::memory_order_acquire) &&
+                              !std::ranges::binary_search(
+                                  command_list.deferred_entries,
+                                  static_cast<u32>(dma_pushbuffer_subindex));
+        const std::span<const CommandHeader> submit_copy =
+            has_copy ? std::span<const CommandHeader>{
+                           command_list.submitted_words.data() +
+                               command_list.submitted_offsets[dma_pushbuffer_subindex],
+                           header.size}
+                     : std::span<const CommandHeader>{};
+        const bool submitted = has_copy && !gpu_written &&
                                !(use_safe && memory_manager.IsMemoryDirty(dma_state.dma_get,
                                                                           header.size * sizeof(u32)));
         if (!submitted && dma_pushbuffer_subindex < command_list.submitted_offsets.size()) {
@@ -279,10 +322,8 @@ bool DmaPusher::Step() {
             }
         }
         if (submitted) {
-            const std::span<const CommandHeader> commands{
-                command_list.submitted_words.data() +
-                    command_list.submitted_offsets[dma_pushbuffer_subindex],
-                header.size};
+            const std::span<const CommandHeader> commands{submit_copy};
+            VerifySplitRead(commands, submit_copy, SubmitCopy);
             RecordParsedEntry(header, commands);
             command_resume_offset += ProcessCommands(commands, 0);
         } else if (use_safe) {
@@ -293,14 +334,15 @@ bool DmaPusher::Step() {
                 ProcessCommands(commands.subspan(command_resume_offset), command_resume_offset);
         } else if (ReadGpuWrittenCommands(dma_state.dma_get, static_cast<u32>(header.size))) {
             const std::span<const CommandHeader> commands{command_headers.data(), header.size};
+            VerifySplitRead(commands, submit_copy, ListCopy);
             RecordParsedEntry(header, commands);
             command_resume_offset +=
                 ProcessCommands(commands.subspan(command_resume_offset), command_resume_offset);
         } else {
             FlushGpuWrittenCommands(dma_state.dma_get, size_t{header.size} * sizeof(u32));
-            VerifySplitSafeRead(dma_state.dma_get, size_t{header.size} * sizeof(u32));
             Tegra::Memory::GpuGuestMemory<Tegra::CommandHeader, Tegra::Memory::GuestMemoryFlags::UnsafeRead>headers(memory_manager, dma_state.dma_get, header.size, &command_headers);
             const std::span<const CommandHeader> commands{headers.data(), headers.size()};
+            VerifySplitRead(commands, submit_copy, GuestMemory);
             RecordParsedEntry(header, commands);
             command_resume_offset +=
                 ProcessCommands(commands.subspan(command_resume_offset), command_resume_offset);
@@ -798,31 +840,50 @@ void DmaPusher::FlushGpuWrittenCommands(GPUVAddr address, size_t size) {
     }
 }
 
-void DmaPusher::VerifySplitSafeRead(GPUVAddr address, size_t size) {
-    static const bool verify = std::getenv("EDEN_NX2_SPLIT_HIGH_VERIFY") != nullptr;
+void DmaPusher::VerifySplitRead(std::span<const CommandHeader> used,
+                                std::span<const CommandHeader> submit_copy, u32 source) {
     auto& split = VideoCommon::GpuSplit::Get();
-    if (!verify || size == 0 || !split.Active() ||
+    if (!VerifySplitReads() || used.empty() || !split.Active() ||
         !(Settings::IsDMALevelDefault() ? Settings::IsGPULevelHigh() : Settings::IsDMALevelSafe())) {
         return;
     }
-    std::vector<u32> as_read(size / sizeof(u32));
-    memory_manager.ReadBlockUnsafe(address, as_read.data(), as_read.size() * sizeof(u32));
-    // What a single thread's safe read would see: everything sent before ran, all caches flushed.
+    const GPUVAddr address = dma_state.dma_get;
+    const size_t size = used.size_bytes();
+    // Copied: the flush below may write the memory these words are read from.
+    const std::vector<CommandHeader> as_read(used.begin(), used.end());
+    // What one GPU thread parses with safe reads: everything sent before has run, and the
+    // submit-time copy is used only while no cache holds newer data, else the caches are flushed
+    // and guest memory read.
     split.Drain();
-    split.Run([memory = &memory_manager, address, size] { memory->FlushRegion(address, size); });
-    std::vector<u32> flushed(as_read.size());
-    memory_manager.ReadBlockUnsafe(address, flushed.data(), flushed.size() * sizeof(u32));
-    static std::atomic<u64> checks{};
-    static std::atomic<u64> mismatches{};
-    ++checks;
-    if (as_read != flushed && mismatches.fetch_add(1) < 32) {
-        const auto at = std::ranges::mismatch(as_read, flushed).in1 - as_read.begin();
-        LOG_ERROR(HW_GPU, "Split at High: command list at {:#x} (+{:#x}) read {:#x}, safe read {:#x}",
-                  address, at * sizeof(u32), as_read[at], flushed[at]);
+    bool dirty{};
+    split.Run([memory = &memory_manager, address, size, out = &dirty] {
+        *out = memory->IsMemoryDirty(address, size);
+    });
+    std::vector<CommandHeader> flushed;
+    std::span<const CommandHeader> expected = submit_copy;
+    if (submit_copy.empty() || dirty || IsGpuWrittenCommands(address, size)) {
+        split.Run([memory = &memory_manager, address, size] { memory->FlushRegion(address, size); });
+        flushed.resize(as_read.size());
+        memory_manager.ReadBlockUnsafe(address, flushed.data(), size);
+        expected = flushed;
     }
-    if ((checks & 0xffff) == 0) {
-        LOG_INFO(HW_GPU, "Split at High verify: {} checks, {} differed", checks.load(),
-                 mismatches.load());
+    ++verify_checks[source];
+    const u64 total = verify_total.fetch_add(1) + 1;
+    if (std::memcmp(as_read.data(), expected.data(), size) != 0 &&
+        verify_mismatches[source].fetch_add(1) < 32) {
+        size_t at = 0;
+        while (as_read[at].argument == expected[at].argument) {
+            ++at;
+        }
+        LOG_ERROR(HW_GPU,
+                  "Split at High: command list at {:#x} (+{:#x}) parsed {:#x} from the {}, a safe "
+                  "read gives {:#x} from {}",
+                  address, at * sizeof(u32), as_read[at].argument, verify_source_names[source],
+                  expected[at].argument,
+                  flushed.empty() ? "the submit-time copy" : "flushed memory");
+    }
+    if (total == 1 || (total & 0xfff) == 0) {
+        ReportSplitVerify();
     }
 }
 
