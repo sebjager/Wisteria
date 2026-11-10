@@ -232,8 +232,10 @@ public:
     /// Brings command list words the GPU wrote (still only in host buffers) to guest memory.
     void FlushGpuWrittenCommands(GPUVAddr address, size_t size);
     /// EDEN_NX2_SPLIT_HIGH_VERIFY=1: with the split kept under settings that ask for safe reads,
-    /// compares each command list as read with the words after a drain and a full flush.
-    void VerifySplitSafeRead(GPUVAddr address, size_t size);
+    /// compares the words about to be parsed (`used`, taken from `source`) with what a single GPU
+    /// thread's safe read parses, and logs differences and check counts.
+    void VerifySplitRead(std::span<const CommandHeader> used,
+                         std::span<const CommandHeader> submit_copy, u32 source);
 
 private:
 
