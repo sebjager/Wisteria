@@ -7,6 +7,7 @@
 add_executable(tests
     video_core/frame_dump_schedule.cpp
     core/nx2_debug_server.cpp
+    audio_core/adpcm_decode.cpp
     core/system_test_context.h
     video_core/ampere_logged_numeric.cpp
     video_core/pipeline_optimization.cpp
