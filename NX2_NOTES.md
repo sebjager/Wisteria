@@ -229,7 +229,7 @@ faulting stack as module+offset, then a minidump), `EDEN_NX2_AUTO_STUB`, `EDEN_N
 `EDEN_NX2_SKIP_SAME=0` (row 135),
 `EDEN_NX2_MME_JIT=0` (row 140),
 `EDEN_NX2_SPLIT=0/1` (default 2), `EDEN_NX2_SPLIT_VERIFY=1`, `EDEN_NX2_SPLIT_CHECK=1`, `EDEN_NX2_SPLIT_SKIP=0` (rows 142-145),
-`EDEN_NX2_SPLIT_HIGH=1` (keep the split with gpu_accuracy High or safe DMA, off by default), `EDEN_NX2_SPLIT_HIGH_VERIFY=1`,
+`EDEN_NX2_SPLIT_HIGH=0` (stop the split with gpu_accuracy High or safe DMA; kept by default), `EDEN_NX2_SPLIT_HIGH_VERIFY=1`,
 `EDEN_NX2_READ_TRAPS=0` (row 150),
 `EDEN_NX2_FRAME_CAPTURE=<dir>` (every 120th presented frame as TGA), `EDEN_NX2_PB_CHECK`
 (pushbuffer entries changed between submit and execution), `EDEN_NX2_QUERY_TRACE` (every GPU
