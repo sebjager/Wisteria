@@ -9,7 +9,6 @@ add_executable(tests
     core/nx2_debug_server.cpp
     audio_core/adpcm_decode.cpp
     core/system_test_context.h
-    video_core/ampere_logged_numeric.cpp
     video_core/pipeline_optimization.cpp
     video_core/spirv_atomic_retry.cpp
     video_core/spirv_storage_alignment.cpp
