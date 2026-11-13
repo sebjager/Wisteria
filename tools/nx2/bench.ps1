@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Benchmark for eden-cli on a Switch 2 title.
-# Runs eden-cli N times for a fixed time, kills it, keeps each log and prints per-run and overall
+# Benchmark for wisteria-cli on a Switch 2 title.
+# Runs wisteria-cli N times for a fixed time, kills it, keeps each log and prints per-run and overall
 # numbers from the GPU profiler (EDEN_NX2_GPU_PROFILE, one line per thread every 10 s) and the
 # nx2:vi2 present log (one line per 600 presents -> mean frame time per 600-frame window).
 #
@@ -24,7 +24,7 @@ param(
     [string]$Tag = "base",
     [string]$KeyScript = "",
     [hashtable]$Env = @{},
-    [string]$Exe = "C:\dev\eden\build\bin\eden-cli.exe",
+    [string]$Exe = "C:\dev\eden\build\bin\wisteria-cli.exe",
     [string]$OutDir = "C:\dev\bench",
     [string[]]$ParseOnly
 )
@@ -103,8 +103,8 @@ if ($ParseOnly) {
 }
 
 if (-not $Game -or -not (Test-Path $Game)) { throw "Game main not found: $Game" }
-if (-not (Test-Path $Exe)) { throw "eden-cli not found: $Exe" }
-if (Get-Process eden-cli, eden -ErrorAction SilentlyContinue) { throw "eden is already running" }
+if (-not (Test-Path $Exe)) { throw "wisteria-cli not found: $Exe" }
+if (Get-Process wisteria-cli, eden -ErrorAction SilentlyContinue) { throw "eden is already running" }
 if (Get-Process nvidia-smi -ErrorAction SilentlyContinue) { throw "nvidia-smi is running (see NX2_NOTES row 130)" }
 $bin = Split-Path $Exe
 New-Item -ItemType Directory -Force (Join-Path $bin "user"), $OutDir | Out-Null
@@ -153,7 +153,7 @@ for ($r = $first; $r -le $Runs; $r++) {
         foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
     }
     $exited = $p.WaitForExit($Seconds * 1000)
-    if (-not $exited) { Stop-Process -Id $p.Id -Force; $p.WaitForExit() } else { Write-Warning "eden-cli exited early (code $($p.ExitCode))" }
+    if (-not $exited) { Stop-Process -Id $p.Id -Force; $p.WaitForExit() } else { Write-Warning "wisteria-cli exited early (code $($p.ExitCode))" }
     Start-Sleep -Milliseconds 500
     $dest = Join-Path $OutDir ("{0}-{1}-{2}.log" -f $Tag, (Get-Date -Format "MMdd-HHmmss"), $(if ($r) { $r } else { "warmup" }))
     Copy-Item $log $dest

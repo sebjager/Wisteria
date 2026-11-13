@@ -20,8 +20,8 @@ Everything here is off unless its variable is set:
 
 ## Running it
 
-1. Start `eglantine.exe` (Qt) or `eden-cli.exe` with `EDEN_NX2_DEBUG_SERVER=127.0.0.1:6545` in
-   the environment and boot a game. The log (`%APPDATA%\eglantine\log\eden_log.txt`, or `user\log\`
+1. Start `wisteria.exe` (Qt) or `wisteria-cli.exe` with `EDEN_NX2_DEBUG_SERVER=127.0.0.1:6545` in
+   the environment and boot a game. The log (`%APPDATA%\wisteria\log\eden_log.txt`, or `user\log\`
    next to the exe for portable builds) shows `Debug server listening on 127.0.0.1:6545, dump dir
    ...`. The default dump directory is the `debug-server` folder in that log folder.
 2. Run the adapter with native Windows Python (`py`). The MSYS `python` in Git Bash rejects `C:/`
@@ -84,7 +84,7 @@ handlers, which keeps it unit-testable without a `System`.
 service once a game has loaded and `ShutdownMainProcess` stops it before anything else. The member
 is declared last in `System::Impl`, so it is also destroyed first. The tools therefore never see a
 half-built or half-destroyed system, and the server works the same under the Qt frontend and
-`eden-cli`.
+`wisteria-cli`.
 
 The GDB stub speaks the GDB remote protocol and parks emulation on every stop. It stays the tool
 for guest breakpoints (`tools/nx2/gdbrsp.py` drives it), but it has no place for frames, shaders or
@@ -205,7 +205,7 @@ The tool returns the directory, the frame and summary lines, counts per entry ki
 entries and the `frame_dump_index.py` command; with `index: true` the adapter runs it.
 
 **`sample`** `{threads?, seconds?, max_chars?}`. The in-process sampling profiler
-(`src/common/nx2_sampler.cpp`; `eden-cli` also starts it at launch with `EDEN_NX2_SAMPLE`) on
+(`src/common/nx2_sampler.cpp`; `wisteria-cli` also starts it at launch with `EDEN_NX2_SAMPLE`) on
 demand: it pauses the named threads (default `GPU,GPUBack`) about 1000 times a second for `seconds`
 (default 10) and returns self, self-and-caller and inclusive counts per function plus the hottest
 instructions as module offsets. The report and its folded stacks go to `samples-<session>-<n>.txt`.

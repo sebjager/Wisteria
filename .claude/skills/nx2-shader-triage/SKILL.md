@@ -6,7 +6,7 @@ author: kraibse
 license: MIT
 metadata:
   hermes:
-    tags: [eglantine, eden, switch2, ampere, sass, shader, lowering, maxwell]
+    tags: [wisteria, eden, switch2, ampere, sass, shader, lowering, maxwell]
     related_skills: [git-branch-reconciliation, switch-emulator-diagnostics]
 ---
 
@@ -50,7 +50,7 @@ same on every GPU. The repo vendors an older copy of this skill under `.claude/s
   screenshot, `reject_shaders`, `capture_frame`, `read_memory`, `input_sequence`;
   `docs/nx2/debug-mcp.md`). Use it before asking for a relaunch, and restore every reject.
 - **Visual bugs (tint, missing effect): drive the game yourself** with `lab_ctl.py` (hidden
-  `eden-cli`, scripted keys, capture plus RGB stats), not by asking the user for runs. Load
+  `wisteria-cli`, scripted keys, capture plus RGB stats), not by asking the user for runs. Load
   `nx2-lab-automation` for the run mechanics; the investigation procedure is in
   `references/visual-bug-investigation.md`.
 - **Never leave a hidden emulator running.** It holds the user's GPU and they'll have to force-kill
@@ -85,7 +85,7 @@ program-level context (uniform-bank use, call linkage) can differ.
 ### 3. Dump run (when the log is exhausted)
 
 ```bash
-EDEN_NX2_SHADER_DUMP=<existing plain dir> EDEN_NX2_TENSOR=1 <repo>/build/bin/eglantine
+EDEN_NX2_SHADER_DUMP=<existing plain dir> EDEN_NX2_TENSOR=1 <repo>/build/bin/wisteria
 ```
 
 Writes `<key>-gfx-<addr>.bin` / `-cs-` (16 bytes per instruction, no header), rejected programs
@@ -127,7 +127,7 @@ constants or are dropped with a warning).
 - Add a test with the real logged words to `src/tests/video_core/ampere_lowering.cpp`, checking
   emitted fields (type, offset mode, DC, source registers).
 - `ninja -C build -j$(nproc) tests && ./build/bin/tests "[ampere]"`, then the full `tests`, then the
-  `yuzu` target (links `bin/eglantine`).
+  `yuzu` target (links `bin/wisteria`).
 - Re-run step 2 on `uniq.txt`. Only HMMA (opt-in) should remain. Say "compiled and unit-tested,
   not run in game" until the user's dump run confirms it.
 
@@ -141,7 +141,7 @@ constants or are dropped with a warning).
 - **`Draw skipped (no pipeline)` with no rejections** is usually `use_asynchronous_shaders=true`
   (`BuiltPipeline` skips depth draws while compiling); every lowering change re-hashes and
   rebuilds pipelines, so it spikes after each fix. Check `~/.config/eden/qt-config.ini`.
-- **A log that just stops is a crash.** `coredumpctl list | grep eglantine`, then
+- **A log that just stops is a crash.** `coredumpctl list | grep wisteria`, then
   `coredumpctl info <pid>` for the symbolized top frames (gdb on the 13 GB core often can't unwind;
   delete dumped cores from scratch afterwards). A garbage command stream (nonsense formats, MME
   `start` outside uploaded RAM, syncpoint past the table) right before the end is the cause, not

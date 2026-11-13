@@ -200,15 +200,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -x build/release/bin/eglantine
-          test -x build/release/bin/eden-cli
-          strip build/release/bin/eglantine build/release/bin/eden-cli
+          test -x build/release/bin/wisteria
+          test -x build/release/bin/wisteria-cli
+          strip build/release/bin/wisteria build/release/bin/wisteria-cli
           # GPL: the license texts go into the tar.gz next to the programs.
           cp LICENSE.txt build/release/bin/
           cp -r LICENSES build/release/bin/
-          tar -czf "eglantine-${SHA}-${PLATFORM}.tar.gz" \
-            -C build/release/bin eglantine eden-cli LICENSE.txt LICENSES
-          ls -la "eglantine-${SHA}-${PLATFORM}.tar.gz"
+          tar -czf "wisteria-${SHA}-${PLATFORM}.tar.gz" \
+            -C build/release/bin wisteria wisteria-cli LICENSE.txt LICENSES
+          ls -la "wisteria-${SHA}-${PLATFORM}.tar.gz"
 
       # A self-contained AppImage: linuxdeploy bundles every library the two programs need except
       # the base system ones (glibc, X11/Wayland client libraries, the GPU driver and Vulkan loader),
@@ -219,8 +219,8 @@ jobs:
           VERSION_LABEL: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          test -x build/release/bin/eglantine
-          test -x build/release/bin/eden-cli
+          test -x build/release/bin/wisteria
+          test -x build/release/bin/wisteria-cli
           tools="$RUNNER_TEMP/linuxdeploy"
           mkdir -p "$tools"
           arch=$(uname -m)   # aarch64 or x86_64
@@ -235,19 +235,19 @@ jobs:
           export APPIMAGE_EXTRACT_AND_RUN=1
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
           # GPL: ship the license texts inside the AppImage.
-          install -Dm644 LICENSE.txt AppDir/usr/share/doc/eglantine/LICENSE.txt
-          cp -r LICENSES AppDir/usr/share/doc/eglantine/
+          install -Dm644 LICENSE.txt AppDir/usr/share/doc/wisteria/LICENSE.txt
+          cp -r LICENSES AppDir/usr/share/doc/wisteria/
           # Include Wayland platform plugins and their graphics/shell integrations.
           export EXTRA_QT_MODULES=waylandcompositor
           export EXTRA_PLATFORM_PLUGINS='libqwayland-egl.so;libqwayland-generic.so'
           # Embedded in the AppImage metadata: the version label of this build.
           export LDAI_VERSION="$VERSION_LABEL"
-          export LDAI_OUTPUT="eglantine-${SHA}-${PLATFORM}.AppImage"
+          export LDAI_OUTPUT="wisteria-${SHA}-${PLATFORM}.AppImage"
           export OUTPUT="$LDAI_OUTPUT"
           export ARCH="$arch"
           "$tools/linuxdeploy-$arch.AppImage" --appdir AppDir \
-            --executable build/release/bin/eglantine \
-            --executable build/release/bin/eden-cli \
+            --executable build/release/bin/wisteria \
+            --executable build/release/bin/wisteria-cli \
             --desktop-file dist/dev.eden_emu.eden.desktop \
             --icon-file "$icon" \
             --plugin qt \
@@ -259,10 +259,10 @@ jobs:
       - name: Upload Linux binary
         uses: actions/upload-artifact@v7
         with:
-          name: eglantine-${{ env.PLATFORM }}-${{ inputs.sha }}
+          name: wisteria-${{ env.PLATFORM }}-${{ inputs.sha }}
           path: |
-            eglantine-${{ inputs.sha }}-${{ env.PLATFORM }}.tar.gz
-            eglantine-${{ inputs.sha }}-${{ env.PLATFORM }}.AppImage
+            wisteria-${{ inputs.sha }}-${{ env.PLATFORM }}.tar.gz
+            wisteria-${{ inputs.sha }}-${{ env.PLATFORM }}.AppImage
           if-no-files-found: error
           compression-level: 0
           retention-days: 7

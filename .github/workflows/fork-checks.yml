@@ -93,7 +93,7 @@ jobs:
           restore-keys: |
             objects-ci-windows-
 
-      # Same configuration as the local build in NX2_NOTES.md (RelWithDebInfo, eden-cli without Qt),
+      # Same configuration as the local build in NX2_NOTES.md (RelWithDebInfo, wisteria-cli without Qt),
       # with the unit tests turned on. sccache cannot cache /Zi (a PDB shared between compiler
       # processes), so debug info is embedded in each object with /Z7 instead.
       - name: Configure
@@ -122,7 +122,7 @@ jobs:
         run: |
           cmake --build build --target yuzu-cmd tests --parallel
           sccache --show-stats
-          test -f build/bin/eden-cli.exe
+          test -f build/bin/wisteria-cli.exe
 
       # Bundled dependencies such as zlib register their own CTest tests, which need a system
       # install to configure; only Eglantine's own test program is run.
@@ -131,12 +131,12 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 600 -R '^tests$'
 
       # Only the program itself is uploaded: no user/ folder, config, keys or firmware.
-      - name: Upload eden-cli
+      - name: Upload wisteria-cli
         uses: actions/upload-artifact@v4
         with:
-          name: eden-cli-windows-${{ github.sha }}
+          name: wisteria-cli-windows-${{ github.sha }}
           path: |
-            build/bin/eden-cli.exe
+            build/bin/wisteria-cli.exe
             build/bin/*.dll
           if-no-files-found: error
           retention-days: 7

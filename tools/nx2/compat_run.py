@@ -4,7 +4,7 @@
 """Run every Switch 2 title once, unattended, and write a compatibility table.
 
 Usage:
-  compat_run.py --eden build/bin/eden-cli.exe --games games.json [--only NAME ...]
+  compat_run.py --eden build/bin/wisteria-cli.exe --games games.json [--only NAME ...]
                 [--seconds 300] [--hang-seconds N] [--show] [--dump-shaders] [--out compat_runs]
                 [--label NAME] [--baseline RUN] [--env NAME=VALUE ...]
   compat_run.py --summarize compat_runs/<YYYYmmdd-HHMMSS> [--baseline RUN]
