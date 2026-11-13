@@ -327,6 +327,12 @@ void SetEdenPath(EdenPath eden_path, const Path& new_path) {
 
 #endif
 
+/**
+ * Returns the name of the global data directory: EDEN_DIR, or EGLANTINE_DIR when only the
+ * directory from before the Wisteria rename exists, so existing saves and settings keep working.
+ */
+[[nodiscard]] const char* GetDataDirName();
+
 #ifdef __APPLE__
 
 [[nodiscard]] std::filesystem::path GetBundleDirectory();

@@ -144,9 +144,11 @@ static void LoadNx2Switches(const char* argv0) {
         ParseSwitchFile(exe_dir / "nx2_switches.txt", entries);
     }
 #ifdef _WIN32
-    const auto config_dir = Common::FS::GetAppDataRoamingDirectory() / EDEN_DIR;
+    const auto config_dir =
+        Common::FS::GetAppDataRoamingDirectory() / Common::FS::GetDataDirName();
 #else
-    const auto config_dir = Common::FS::GetDataDirectory("XDG_CONFIG_HOME") / EDEN_DIR;
+    const auto config_dir =
+        Common::FS::GetDataDirectory("XDG_CONFIG_HOME") / Common::FS::GetDataDirName();
 #endif
     ParseSwitchFile(config_dir / "nx2_switches.txt", entries);
     for (const auto& [name, value] : entries) {
@@ -194,7 +196,7 @@ int main(int argc, char* argv[]) {
 
     // Init settings params
     QCoreApplication::setOrganizationName(QStringLiteral("eden"));
-    QCoreApplication::setApplicationName(QStringLiteral("Eglantine"));
+    QCoreApplication::setApplicationName(QStringLiteral("Wisteria"));
 
     // Increases the maximum open file limit.
     // TODO: This should be common to all frontends.
@@ -246,7 +248,7 @@ int main(int argc, char* argv[]) {
 
     // Fix the Wayland appId. This needs to match the name of the .desktop file without the .desktop
     // suffix.
-    QGuiApplication::setDesktopFileName(QStringLiteral("dev.eglantine.eglantine"));
+    QGuiApplication::setDesktopFileName(QStringLiteral("dev.wisteria.wisteria"));
 #endif
 
     auto rounding_policy = GetHighDpiRoundingPolicy();

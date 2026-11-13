@@ -114,7 +114,7 @@ public:
         // User directory takes priority over global %AppData% directory
         eden_path = GetExeDirectory() / PORTABLE_DIR;
         if (!Exists(eden_path) || !IsDir(eden_path)) {
-            eden_path = GetAppDataRoamingDirectory() / EDEN_DIR;
+            eden_path = GetAppDataRoamingDirectory() / GetDataDirName();
         }
         eden_path_cache = eden_path / CACHE_DIR;
         eden_path_config = eden_path / CONFIG_DIR;
@@ -137,9 +137,10 @@ public:
 #else
         eden_path = GetCurrentDir() / PORTABLE_DIR;
         if (!Exists(eden_path) || !IsDir(eden_path)) {
-            eden_path = GetDataDirectory("XDG_DATA_HOME") / EDEN_DIR;
-            eden_path_cache = GetDataDirectory("XDG_CACHE_HOME") / EDEN_DIR;
-            eden_path_config = GetDataDirectory("XDG_CONFIG_HOME") / EDEN_DIR;
+            const char* const data_dir_name = GetDataDirName();
+            eden_path = GetDataDirectory("XDG_DATA_HOME") / data_dir_name;
+            eden_path_cache = GetDataDirectory("XDG_CACHE_HOME") / data_dir_name;
+            eden_path_config = GetDataDirectory("XDG_CONFIG_HOME") / data_dir_name;
         } else {
             eden_path_cache = eden_path / CACHE_DIR;
             eden_path_config = eden_path / CONFIG_DIR;
@@ -393,6 +394,19 @@ fs::path GetDataDirectory(const std::string& env_name) {
 }
 
 #endif
+
+const char* GetDataDirName() {
+#ifdef _WIN32
+    const fs::path base = GetAppDataRoamingDirectory();
+#else
+    const fs::path base = GetDataDirectory("XDG_DATA_HOME");
+#endif
+    std::error_code ec;
+    if (!fs::exists(base / EDEN_DIR, ec) && fs::is_directory(base / EGLANTINE_DIR, ec)) {
+        return EGLANTINE_DIR;
+    }
+    return EDEN_DIR;
+}
 
 #ifdef __APPLE__
 
