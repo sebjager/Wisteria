@@ -5,6 +5,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 add_executable(tests
+    video_core/upload_batch.cpp
     video_core/frame_dump_schedule.cpp
     core/nx2_debug_server.cpp
     audio_core/adpcm_decode.cpp
