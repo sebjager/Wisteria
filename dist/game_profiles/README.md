@@ -1,6 +1,6 @@
 # Game profiles
 
-Per-game optimization defaults, loaded automatically when a game starts (eden-cli and Qt).
+Per-game optimization defaults, loaded automatically when a game starts (wisteria-cli and Qt).
 A profile is `<program id>.ini` (16 hex digits, e.g. `0400C3F00006E000.ini`). Every `.ini` in
 this folder is compiled into the build; `<config dir>/game_profiles/<id>.ini` replaces the
 bundled one without rebuilding.

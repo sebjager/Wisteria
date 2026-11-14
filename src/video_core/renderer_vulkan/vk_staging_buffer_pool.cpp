@@ -122,15 +122,24 @@ StagingBufferRef StagingBufferPool::Request(size_t size, MemoryUsage usage, bool
 }
 
 void StagingBufferPool::FreeDeferred(StagingBufferRef& ref) {
-    auto& entries = GetCache(ref.usage)[ref.log2_level].entries;
-    const auto is_this_one = [&ref](const StagingBuffer& entry) {
-        return entry.index == ref.index;
-    };
-    auto it = std::find_if(entries.begin(), entries.end(), is_this_one);
-    ASSERT(it != entries.end());
-    ASSERT(it->deferred);
-    it->tick = scheduler.CurrentTick();
-    it->deferred = false;
+    StagingBuffers& level = GetCache(ref.usage)[ref.log2_level];
+    ASSERT(ref.slot < level.entries.size());
+    StagingBuffer& entry = level.entries[ref.slot];
+    ASSERT(entry.index == ref.index);
+    ASSERT(entry.deferred);
+    entry.tick = scheduler.CurrentTick();
+    entry.deferred = false;
+    level.released.push_back(ref.slot);
+}
+
+void StagingBufferPool::Acquire(StagingBuffers& level, StagingBuffer& entry, bool deferred) {
+    entry.deferred = deferred;
+    if (deferred) {
+        entry.tick = (std::numeric_limits<u64>::max)();
+        return;
+    }
+    entry.tick = scheduler.CurrentTick();
+    level.released.push_back(entry.slot);
 }
 
 void StagingBufferPool::TickFrame() {
@@ -195,25 +204,21 @@ StagingBufferRef StagingBufferPool::GetStagingBuffer(size_t size, MemoryUsage us
 std::optional<StagingBufferRef> StagingBufferPool::TryGetReservedBuffer(size_t size,
                                                                         MemoryUsage usage,
                                                                         bool deferred) {
-    StagingBuffers& cache_level = GetCache(usage)[Common::Log2Ceil(size)];
-
-    const auto is_free = [this](const StagingBuffer& entry) {
-        return !entry.deferred && scheduler.IsFree(entry.tick);
-    };
-    auto& entries = cache_level.entries;
-    const auto hint_it = entries.begin() + cache_level.iterate_index;
-    auto it = std::find_if(entries.begin() + cache_level.iterate_index, entries.end(), is_free);
-    if (it == entries.end()) {
-        it = std::find_if(entries.begin(), hint_it, is_free);
-        if (it == hint_it) {
-            return std::nullopt;
-        }
+    // Switch 2 titles hold thousands of deferred buffers per level (one per command list page)
+    // and ask for more every fence; searching the entries for a free one took a third of the
+    // GPU thread in Mario Kart World.
+    StagingBuffers& level = GetCache(usage)[Common::Log2Ceil(size)];
+    if (level.released.empty()) {
+        return std::nullopt;
     }
-    cache_level.iterate_index = std::distance(entries.begin(), it) + 1;
-    it->tick = deferred ? (std::numeric_limits<u64>::max)() : scheduler.CurrentTick();
-    ASSERT(!it->deferred);
-    it->deferred = deferred;
-    return it->Ref();
+    StagingBuffer& entry = level.entries[level.released.front()];
+    if (!scheduler.IsFree(entry.tick)) {
+        return std::nullopt;
+    }
+    level.released.pop_front();
+    ASSERT(!entry.deferred);
+    Acquire(level, entry, deferred);
+    return entry.Ref();
 }
 
 StagingBufferRef StagingBufferPool::CreateStagingBuffer(size_t size, MemoryUsage usage, bool deferred) {
@@ -246,16 +251,26 @@ StagingBufferRef StagingBufferPool::CreateStagingBuffer(size_t size, MemoryUsage
         device.IsBufferDeviceAddressSupported()
             ? device.GetLogical().GetBufferDeviceAddress(*buffer)
             : VkDeviceAddress{};
-    StagingBuffer& entry = GetCache(usage)[log2_size].entries.emplace_back(StagingBuffer{
+    StagingBuffers& level = GetCache(usage)[log2_size];
+    u32 slot;
+    if (level.vacant.empty()) {
+        slot = static_cast<u32>(level.entries.size());
+        level.entries.emplace_back();
+    } else {
+        slot = level.vacant.back();
+        level.vacant.pop_back();
+    }
+    StagingBuffer& entry = level.entries[slot];
+    entry = StagingBuffer{
         .buffer = std::move(buffer),
         .device_address = buffer_address,
         .mapped_span = mapped_span,
         .usage = usage,
         .log2_level = log2_size,
         .index = unique_ids++,
-        .tick = deferred ? (std::numeric_limits<u64>::max)() : scheduler.CurrentTick(),
-        .deferred = deferred,
-    });
+        .slot = slot,
+    };
+    Acquire(level, entry, deferred);
     return entry.Ref();
 }
 
@@ -279,26 +294,17 @@ void StagingBufferPool::ReleaseCache(MemoryUsage usage) {
 
 void StagingBufferPool::ReleaseLevel(StagingBuffersCache& cache, size_t log2) {
     constexpr size_t deletions_per_tick = 16;
-    auto& staging = cache[log2];
-    auto& entries = staging.entries;
-    const size_t old_size = entries.size();
-
-    const auto is_deletable = [this](const StagingBuffer& entry) {
-        return scheduler.IsFree(entry.tick);
-    };
-    const size_t begin_offset = staging.delete_index;
-    const size_t end_offset = (std::min)(begin_offset + deletions_per_tick, old_size);
-    const auto begin = entries.begin() + begin_offset;
-    const auto end = entries.begin() + end_offset;
-    entries.erase(std::remove_if(begin, end, is_deletable), end);
-
-    const size_t new_size = entries.size();
-    staging.delete_index += deletions_per_tick;
-    if (staging.delete_index >= new_size) {
-        staging.delete_index = 0;
-    }
-    if (staging.iterate_index > new_size) {
-        staging.iterate_index = 0;
+    StagingBuffers& level = cache[log2];
+    for (size_t i = 0; i < deletions_per_tick && !level.released.empty(); ++i) {
+        const u32 slot = level.released.front();
+        StagingBuffer& entry = level.entries[slot];
+        if (!scheduler.IsFree(entry.tick)) {
+            break;
+        }
+        level.released.pop_front();
+        entry.buffer.reset();
+        entry.mapped_span = {};
+        level.vacant.push_back(slot);
     }
 }
 

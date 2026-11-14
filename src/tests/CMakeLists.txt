@@ -49,8 +49,10 @@ add_executable(tests
     video_core/ampere_compute_lowering.cpp
     video_core/native_macro_fifo.cpp
     video_core/uniform_stream_reuse.cpp
+    video_core/usage_tracker.cpp
     video_core/shader_invalidation.cpp
     video_core/descriptor_table.cpp
+    video_core/descriptor_payload_growth.cpp
     video_core/global_address_tracking.cpp
     video_core/global_atomic_routing.cpp
     video_core/nvn_storage_descriptor.cpp
@@ -59,6 +61,8 @@ add_executable(tests
     video_core/ampere_vote.cpp
     video_core/shader_attributes.cpp
     video_core/indirect_reset.cpp
+    video_core/invalidation_accumulator.cpp
+    video_core/virtual_range_cache.cpp
     input_common/calibration_configuration_job.cpp
 )
 

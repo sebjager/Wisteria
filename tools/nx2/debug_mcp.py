@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """MCP server (stdio) for Eglantine's in-process debug server (docs/nx2/debug-mcp.md).
 
-Run eglantine.exe or eden-cli.exe with EDEN_NX2_DEBUG_SERVER=127.0.0.1:6545, then register this
+Run wisteria.exe or wisteria-cli.exe with EDEN_NX2_DEBUG_SERVER=127.0.0.1:6545, then register this
 script as a stdio MCP server for the agent:  py -I tools/nx2/debug_mcp.py [--server 127.0.0.1:6545]
 or run one request from a shell:
   py -I tools/nx2/debug_mcp.py --call '{"method":"screenshot","params":{}}' --out shot.png
@@ -388,7 +388,7 @@ class Adapter:
             reply["result"] = {
                 "protocolVersion": wanted if wanted in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "eglantine-debug", "version": "1"},
+                "serverInfo": {"name": "wisteria-debug", "version": "1"},
             }
         elif method == "ping":
             reply["result"] = {}

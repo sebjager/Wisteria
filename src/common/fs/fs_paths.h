@@ -8,7 +8,9 @@
 
 // yuzu data directories
 
-#define EDEN_DIR "eglantine"
+#define EDEN_DIR "wisteria"
+// Data directory used before the Wisteria rename; still used when it exists and EDEN_DIR does not
+#define EGLANTINE_DIR "eglantine"
 #define EDEN_LEGACY_DIR "eden"
 #define PORTABLE_DIR "user"
 
