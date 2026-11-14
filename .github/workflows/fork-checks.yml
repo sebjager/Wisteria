@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Look for forbidden files
         shell: bash
@@ -59,7 +59,7 @@ jobs:
       SCCACHE_CACHE_SIZE: 1500M
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -78,7 +78,7 @@ jobs:
         run: ./tools/windows/install-vulkan-sdk.ps1
 
       - name: Cache CPM downloads
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .cache/cpm
           key: cpm-ci-${{ runner.os }}-${{ hashFiles('cpmfile.json', 'CMakeLists.txt', 'src/**/CMakeLists.txt') }}
@@ -86,7 +86,7 @@ jobs:
             cpm-ci-${{ runner.os }}-
 
       - name: Cache compiler objects
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .sccache
           key: objects-ci-windows-${{ github.sha }}
@@ -132,7 +132,7 @@ jobs:
 
       # Only the program itself is uploaded: no user/ folder, config, keys or firmware.
       - name: Upload wisteria-cli
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wisteria-cli-windows-${{ github.sha }}
           path: |
