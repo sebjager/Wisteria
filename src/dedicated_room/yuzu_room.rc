@@ -38,10 +38,12 @@ BEGIN
         BLOCK "040904b0"
         BEGIN
             VALUE "FileDescription", "Wisteria room server"
+            VALUE "FileVersion", "0.0.0.0"
             VALUE "InternalName", "wisteria-room"
             VALUE "LegalCopyright", "GPL-3.0-or-later. Fork of Eglantine, Eden and yuzu."
             VALUE "OriginalFilename", "wisteria-room.exe"
             VALUE "ProductName", "Wisteria"
+            VALUE "ProductVersion", "0.0.0.0"
         END
     END
     BLOCK "VarFileInfo"
