@@ -229,9 +229,9 @@ jobs:
           curl -fsSL -o "$tools/linuxdeploy-plugin-qt-$arch.AppImage" \
             "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-$arch.AppImage"
           chmod +x "$tools"/*.AppImage
-          # The desktop file names its icon dev.eglantine.eglantine.
-          icon="$RUNNER_TEMP/dev.eglantine.eglantine.png"
-          cp dist/Eglantine.png "$icon"
+          # The desktop file names its icon dev.eden_emu.eden.
+          icon="$RUNNER_TEMP/dev.eden_emu.eden.png"
+          cp dist/Wisteria.png "$icon"
           export APPIMAGE_EXTRACT_AND_RUN=1
           export QMAKE="$QT_ROOT_DIR/bin/qmake"
           # GPL: ship the license texts inside the AppImage.

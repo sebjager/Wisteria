@@ -12,6 +12,20 @@ Files: dist/english_plurals/*
 Copyright: yuzu Emulator Project
 License: GPL-2.0-or-later
 
+Files: dist/icon_variations/wisteria*
+       dist/wisteria.icns
+       dist/Wisteria.png
+       dist/eden.bmp
+       dist/eden.icon/Assets/dev.eden_emu.eden.svg
+       src/android/app/src/main/res/drawable/ic_launcher_foreground.png
+       src/android/app/src/main/res/drawable/ic_yuzu.png
+       src/android/app/src/main/res/drawable/ic_yuzu_splash.png
+       src/android/app/src/main/res/mipmap-*/ic_launcher.png
+Copyright: 2026 Wisteria contributors
+License: GPL-3.0-or-later
+Comment: Wisteria logo. dist/eden.ico, dist/eden.icns, dist/dev.eden_emu.eden.svg and
+         dist/qt_themes/default/icons/256x256/eden.png also carry it since the rename.
+
 Files: dist/qt_themes/default/icons/256x256/eden.png
        dist/yuzu.bmp
        dist/eden.icns

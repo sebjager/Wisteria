@@ -8,7 +8,7 @@
 which magick || exit
 which optipng || exit
 
-VARIATION=${VARIATION:-base}
+VARIATION=${VARIATION:-wisteria}
 
 EDEN_BASE_SVG="dist/icon_variations/${VARIATION}.svg"
 EDEN_BG_COLOR="dist/icon_variations/${VARIATION}_bgcolor"
